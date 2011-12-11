@@ -1,10 +1,11 @@
 {.$FINITEFLOAT OFF}
+
 unit jsintf;
 interface
 
 
 uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI,
-  Generics.Collections, SysUtils, Windows, Controls, syncObjs, JSDbgServer, forms,dialogs;
+  Generics.Collections, SysUtils, Windows, Controls, syncObjs, JSDbgServer,forms, dialogs;
 
 const
   global_class: JSClass = (name: 'global'; flags: JSCLASS_HAS_PRIVATE; addProperty: JS_PropertyStub;
@@ -209,6 +210,7 @@ type
     Fclass_methods: array of JSFunctionSpec;
 
     FDebugging: boolean;
+
     FDebugger: TJSDebugServer;
     FDebuggerScripts: TJSDebuggerScripts;
 
@@ -283,9 +285,11 @@ type
     property StringClass: PJSClass read fstringclass;
     property Version: String read GetVersion;
 
+
     property Debugging: boolean read FDebugging write SetDebugging;
     property DebuggerScripts: TJSDebuggerScripts read FDebuggerScripts;
     property Debugger: TJSDebugServer read FDebugger;
+
   end;
 
   (*
