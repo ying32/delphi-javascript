@@ -192,44 +192,30 @@ type
   var
     farrayclass: PJSClass;
     fbooleanclass: PJSClass;
-    fclasses: Array of JSClass;
     fcx: PJSContext;
     fdateclass: PJSClass;
     fglobal: PJSObject;
     fnativeglobal: TJSObject;
-//    fnatives: TPtrArray;
     fnumberclass: PJSClass;
-    fptrs: Array of Pointer;
     frt: PJSRuntime;
     fstackSize: Cardinal;
     fstringclass: PJSClass;
-    fvarcount: Integer;
-    fvarlist: Array of TJSBase;
 
     FMethodNamesMap: TDictionary<string, TJSMethod>;
     Fclass_methods: array of JSFunctionSpec;
 
     FDebugging: boolean;
-
     FDebugger: TJSDebugServer;
     FDebuggerScripts: TJSDebuggerScripts;
-
-    procedure AddPtr(const Ptr: Pointer);
-    procedure AddVar(Obj: TJSBase);
-    procedure DeleteClasses;
-    procedure DeletePtrs;
-    procedure DeleteVarList;
 
     function Compile(const Code: String; const FileName: String = ''): PJSScript;
     function Execute(Script: PJSScript; Scope: TJSObject = nil): boolean; overload;
 
     procedure GetStandardClasses;
-    procedure GrowVarList;
     function InternalCall(const Func: PJSFunction; Obj: PJSObject; var args: Array of TJSBase; rval: pjsval): boolean;
     function InternalCallName(const Func: String; Obj: PJSObject; var args: Array of TJSBase;
       rval: pjsval): boolean;
     function InternalGet(const name: String; Obj: PJSObject; var rval: jsval): boolean;
-    procedure RemoveVar(Obj: TJSBase);
     function GetVersion: String;
     procedure SetDebugging(const Value: boolean);
   protected
@@ -244,8 +230,8 @@ type
 
     procedure registerClass(AClass: TClass; AClassFlags: TJSClassFlagAttributes = []);
     procedure registerClasses(AClass: array of TClass; AClassFlags: TJSClassFlagAttributes = []);
-
     procedure registerGlobalFunctions(AClass: TClass);
+
     function Declare(val: Integer; const name: String ): boolean; overload;
     function Declare(val: Double; const name: String ): boolean; overload;
     function Declare(const val: String; const name: String): boolean; overload;
@@ -336,7 +322,6 @@ type
   TJSObject = class(TJSBase)
   protected
     Fjsobj: PJSObject;
-//    fnatives: TPtrArray;
 
     procedure CheckConnection;
     procedure InternalConnect; override;
@@ -348,12 +333,6 @@ type
     function AddMethods(var methods: TJSFunctionSpecArray): boolean;
     function AddNativeObject(Obj: TObject; const InstanceName: String): TJSObject;
 
-    function AddProperties(var props: TJSPropertySpecArray): boolean;
-    function Call(const Func: String; params: Array of TJSBase; var str: String): boolean; overload;
-    function Call(const Func: String; params: Array of TJSBase; var int: Integer): boolean; overload;
-    function Call(const Func: String; params: Array of TJSBase; var dbl: Double): boolean; overload;
-    function Call(const Func: String; params: Array of TJSBase; var res: TJSObject): boolean; overload;
-    function Call(const Func: String; params: Array of TJSBase; var bool: boolean): boolean; overload;
     function ClassType(const Name: String): JSClassType;
     function Declare(val: Double; const name: String ): boolean; overload;
     function Declare(val: Integer; const name: String ): boolean; overload;
@@ -492,20 +471,6 @@ end;
 
 { TJSEngine }
 
-procedure TJSEngine.AddPtr(const Ptr: Pointer);
-begin
-  SetLength(fptrs, Length(fptrs) + 1);
-  fptrs[Length(fptrs) - 1] := Ptr;
-end;
-
-procedure TJSEngine.AddVar(Obj: TJSBase);
-begin
-  if (fvarcount >= Length(fvarlist)) then
-    GrowVarList;
-  fvarlist[fvarcount] := Obj;
-  Inc(fvarcount);
-end;
-
 function TJSEngine.callFunction(functionName: AnsiString): boolean;
 var
   rval: jsval;
@@ -639,45 +604,11 @@ begin
   result := Global.SetProperty(name, val);
 end;
 
-procedure TJSEngine.DeleteClasses;
-begin
-  SetLength(fclasses, 0);
-end;
-
-procedure TJSEngine.DeletePtrs;
-var
-  i: Integer;
-begin
-  for i := 0 to Length(fptrs) - 1 do
-    Dispose(fptrs[i]);
-  SetLength(fptrs, 0);
-end;
-
-procedure TJSEngine.DeleteVarList;
-var
-  i: Integer;
-begin
-  for i := 0 to Length(fvarlist) - 1 do
-    if (fvarlist[i] <> nil) then
-    begin
-      fvarlist[i].Destroying := true;
-      fvarlist[i].Free;
-    end;
-  SetLength(fvarlist, 0);
-end;
-
 destructor TJSEngine.Destroy;
 begin
   JS_DestroyContext(fcx);
   JS_DestroyRuntime(frt);
-//  JS_Finish(frt);
-
-//  fnatives.Free;
   fnativeglobal.Free;
-
-  DeletePtrs;
-  DeleteClasses;
-  DeleteVarList;
   FDelphiClasses.Free;
   FDebuggerScripts.Free;
   FMethodNamesMap.free;
@@ -773,11 +704,6 @@ end;
 function TJSEngine.GetVersion: String;
 begin
   Result := JS_GetImplementationVersion;
-end;
-
-procedure TJSEngine.GrowVarList;
-begin
-  SetLength(fvarlist, Length(fvarlist) + 16);
 end;
 
 function TJSEngine.InternalCall(const Func: PJSFunction; Obj: PJSObject; var args: Array of TJSBase;
@@ -1010,18 +936,6 @@ begin
 
 end;
 
-procedure TJSEngine.RemoveVar(Obj: TJSBase);
-var
-  i: Integer;
-begin
-  for i := 0 to Length(fvarlist) - 1 do
-    if (fvarlist[i] = Obj) then
-    begin
-      fvarlist[i] := nil;
-      exit;
-    end;
-end;
-
 procedure TJSEngine.SetDebugging(const Value: boolean);
 begin
   if FDebugging = Value then exit;
@@ -1094,7 +1008,6 @@ var
 begin
   if (FEngine <> nil) and (not FDestroying) then
     try
-      FEngine.RemoveVar(self); // only for ref-counting, and we'll probably move to something else soon
       if (FName <> '') and (FScope <> nil) then
         JS_DeleteUCProperty2(FEngine.Context, FScope.JSObject, PWideChar(FName), Length(FName), @rval);
     except
@@ -1173,119 +1086,6 @@ begin
   // FDelphiClasses.Add(p.JSClassName, p);
 end;
 
-(* function TJSObject.AddObject(var cls: JSClass; const AName: String): TJSObject;
-  var
-  jsobj: PJSObject;
-  begin
-  CheckConnection;
-  jsobj := JS_DefineObject(FEngine.Context, FJSObj, CreateAnsiString(AName), @cls, nil, JSPROP_ENUMERATE);
-  Result := TJSObject.Create(jsobj, FEngine, AName, self);
-  end;
-*)
-function TJSObject.AddProperties(var props: TJSPropertySpecArray): boolean;
-var
-  len: Integer;
-begin
-  CheckConnection;
-  (* The last element of |props| must be blank *)
-  len := Length(props);
-  SetLength(props, len + 1);
-  FillChar(props[len], SizeOf(JSPropertySpec), #0);
-
-  Result := (JS_DefineProperties(FEngine.Context, Fjsobj, @props[0]) = JS_TRUE);
-end;
-
-function TJSObject.Call(const Func: String; params: Array of TJSBase; var str: String): boolean;
-var
-  rval: jsval;
-begin
-  CheckConnection;
-
-  Result := false;
-  if (not FEngine.InternalCallName(Func, Fjsobj, params, @rval)) then
-  begin
-    str := '';
-    exit;
-  end;
-
-  str := JS_GetStringChars(JS_ValueToString(FEngine.Context, rval));
-  UniqueString(str);
-end;
-
-function TJSObject.Call(const Func: String; params: Array of TJSBase; var dbl: Double): boolean;
-var
-  rval: jsval;
-begin
-  CheckConnection;
-
-  Result := false;
-  if (not FEngine.InternalCallName(Func, Fjsobj, params, @rval)) then
-  begin
-    dbl := JSVAL_NULL;
-    exit;
-  end;
-
-  if (not JSValIsNull(rval)) then
-    JS_ValueToNumber(FEngine.Context, rval, @dbl);
-end;
-
-function TJSObject.Call(const Func: String; params: Array of TJSBase; var int: Integer): boolean;
-var
-  rval: jsval;
-begin
-  CheckConnection;
-
-  Result := false;
-  if (not FEngine.InternalCallName(Func, Fjsobj, params, @rval)) then
-  begin
-    int := JSVAL_NULL;
-    exit;
-  end;
-
-  int := JSValToInt(rval);
-end;
-
-function TJSObject.Call(const Func: String; params: Array of TJSBase; var bool: boolean): boolean;
-var
-  rval: jsval;
-begin
-  CheckConnection;
-
-  Result := false;
-  if (not FEngine.InternalCallName(Func, Fjsobj, params, @rval)) then
-  begin
-    bool := false;
-    exit;
-  end;
-
-  bool := JSValToBoolean(rval);
-end;
-
-function TJSObject.Call(const Func: String; params: Array of TJSBase; var res: TJSObject): boolean;
-var
-  rval: jsval;
-  p: PJSObject;
-  t: Pointer;
-begin
-  CheckConnection;
-
-  Result := false;
-  if (not FEngine.InternalCallName(Func, Fjsobj, params, @rval)) then
-  begin
-    res := nil;
-    exit;
-  end;
-
-  (* !!!
-    * This isn't complete yet.  We need to query the object's parent and name to make this work.
-    *)
-  JS_ValueToObject(FEngine.Context, rval, p);
-  t := JS_GetPrivate(FEngine.Context, p);
-  if (t <> nil) then
-    res := TJSObject(t)
-  else
-    res := TJSObject.Create(p, FEngine, '');
-end;
 
 procedure TJSObject.CheckConnection;
 begin

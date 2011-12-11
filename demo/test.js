@@ -10,6 +10,7 @@ const
 function OnExit(Sender)
 {
   ShowMessage('OnExit');
+  Sender.Text  = 'OnExit fired...';
 }
 
 function main()
