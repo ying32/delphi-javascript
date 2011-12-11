@@ -592,6 +592,31 @@ begin
   FDelphiClasses := TDictionary<string, TJSClassProto>.Create;
   FDebuggerScripts := TJSDebuggerScripts.Create;
   FMethodNamesMap:= TDictionary<string, TJSMethod>.create;
+(*
+  fmOpenRead       = $0000;
+  fmOpenWrite      = $0001;
+  fmOpenReadWrite  = $0002;
+  fmExclusive      = $0004; // when used with FileCreate, atomically creates the file only if it doesn't exist, fails otherwise
+
+  fmShareCompat    = $0000 platform; // DOS compatibility mode is not portable
+  fmShareExclusive = $0010;
+  fmShareDenyWrite = $0020;
+  fmShareDenyRead  = $0030 platform; // write-only not supported on all platforms
+  fmShareDenyNone  = $0040;
+*)
+(*
+  Declare($FF00, 'fmCreate');
+  Declare(0,     'fmOpenRead');
+  Declare(1,     'fmOpenWrite');
+  Declare(2,     'fmOpenReadWrite');
+  Declare(4,     'fmExclusive');
+
+  Declare($0,    'fmShareCompat');
+  Declare($0010, 'fmShareExclusive');
+  Declare($0020, 'fmShareDenyWrite');
+  Declare($0030, 'fmShareDenyRead');
+  Declare($0040, 'fmShareDenyNone');
+*)
 end;
 
 function TJSEngine.Declare(val: Integer; const name: String): boolean;
@@ -2931,7 +2956,8 @@ var
   args: TArray<TValue>;
   methodResult: TValue;
   t: TRttiType;
-  m: TRttiMethod;
+  ctor, m: TRttiMethod;
+  i: integer;
 begin
   Result := JS_TRUE;
   if (JS_IsConstructing(cx) = JS_FALSE) then
@@ -2964,16 +2990,6 @@ begin
         end;
         Obj.FClassProto := defClass;
 
-        // Call JSAfterConstruction
-        (* t := obj.FClassProto.Fctx.GetType(obj.FClassProto.FClass);
-          for m in t.GetMethods('JSAfterConstruction') do
-          begin
-          if Obj.FNativeObj is TJSClass then
-          TJSClass(Obj.FNativeObj).FJSEngine := eng;
-
-          m.Invoke(obj.FNativeObj, []);
-          end; *)
-
       except
         on e: Exception do
         begin
@@ -2993,8 +3009,50 @@ begin
       end
       else
       begin
+        //Try to find a valid constructor
+        t := defClass.Fctx.GetType(defClass.FClass);
+        ctor := NIL;
+        for m in t.GetMethods do
+        begin
+          if m.IsConstructor and (m.Visibility >= mvPublic) and (Length(m.GetParameters) = argc) then
+          begin
+             ctor := m;
+             break;
+          end;
+        end;
+
         Obj := TJSClass.Create;
-        Obj.FNativeObj := defClass.CreateNativeObject(defClass.FClass);
+        if ctor <> nil then
+        begin
+           args := nil;
+           if Length(m.GetParameters) > 0 then
+           begin
+
+             args := TJSClass.JSArgsToTValues(Ctor.GetParameters, cx, jsobj, argc, argv);
+             for I := 0 to high(args) do
+             begin
+                if args[i].isEmpty then
+                begin
+                   ctor := nil; // Unable to find a valid constructor
+                   break;
+                end;
+             end;
+           end;
+
+
+           try
+             if ctor <> nil then
+                methodResult := ctor.Invoke( defClass.FClass, args);
+           except
+             methodResult := TValue.Empty;
+           end;
+           if not methodResult.IsEmpty then
+              Obj.FNativeObj := methodResult.AsObject;
+        end;
+
+        // Fallback to default constructor
+        if Obj.FNativeObj = nil then
+           Obj.FNativeObj := defClass.CreateNativeObject(defClass.FClass);
       end;
       Obj.FClassProto := defClass;
     end;
