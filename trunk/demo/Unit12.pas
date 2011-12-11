@@ -3,10 +3,11 @@ unit Unit12;
 interface
 
 uses
-  Windows, Messages, System.SysUtils, System.Variants, System.Classes, Graphics,
+  Windows, Messages, SysUtils, Variants, Classes, Graphics,
   Controls, Forms, Dialogs, js15decl,jsintf, StdCtrls;
 
 type
+
   [JSClassName('App')]
   TJSAppObject = class(TJSClass)
   public
@@ -46,7 +47,7 @@ procedure TForm12.FormCreate(Sender: TObject);
 begin
   FJSEngine := TJSEngine.Create;
   FJSEngine.registerGlobalFunctions(TJSGlobalFunctions);
-  FJSEngine.registerClasses([TEdit, TForm, TCheckBox]);
+  FJSEngine.registerClasses([TEdit, TForm, TCheckBox, TFileStream]);
   FJSAppObject:= TJSAppObject.CreateJSObject(FJSEngine, 'App') ;
   TJSClass.CreateJSObject(Self, FJSEngine, 'MainForm', [cfaInheritedMethods, cfaInheritedProperties]);
 //  FJSEngine.Evaluate(TJSScript.LoadScript('test.js'), ':ApplicationInitScript:');
