@@ -1,10 +1,7 @@
 {.$FINITEFLOAT OFF}
 unit jsintf;
-//{.$define MOZILLA_1_8_BRANCH}
-{$ifdef ver230}
-//    IMPLEMENT RTTI.GetIndexedProperties
-{$endif}
 interface
+
 
 uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI,
   Generics.Collections, SysUtils, Windows, Controls, syncObjs, JSDbgServer, forms,dialogs;
