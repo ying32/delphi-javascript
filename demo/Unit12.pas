@@ -16,6 +16,7 @@ type
 
   TForm12 = class(TForm)
     Edit1: TEdit;
+    Edit2: TEdit;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
   private

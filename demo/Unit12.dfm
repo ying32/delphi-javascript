@@ -16,11 +16,19 @@ object Form12: TForm12
   PixelsPerInch = 96
   TextHeight = 13
   object Edit1: TEdit
-    Left = 280
-    Top = 112
+    Left = 56
+    Top = 64
     Width = 121
     Height = 21
     TabOrder = 0
+    Text = 'Edit1'
+  end
+  object Edit2: TEdit
+    Left = 56
+    Top = 200
+    Width = 121
+    Height = 21
+    TabOrder = 1
     Text = 'Edit1'
   end
 end
