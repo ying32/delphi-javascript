@@ -34,6 +34,7 @@ type
 
   TJSGlobalFunctions = class
     class procedure ShowMessage(s: string);
+    class function FileExists(n: string): boolean;
   end;
 
 var
@@ -74,6 +75,11 @@ begin
 end;
 
 { TJSGlobalFunctions }
+
+class function TJSGlobalFunctions.FileExists(n: string): boolean;
+begin
+  Result := SysUtils.FileExists(n)
+end;
 
 class procedure TJSGlobalFunctions.ShowMessage(s: string);
 begin
