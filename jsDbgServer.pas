@@ -79,7 +79,40 @@ Type
   end;
 
 implementation
-uses jclStrings, jsintf;
+uses jsintf;
+
+function StrRestOf(const S: string; N: Integer): string;
+begin
+  Result := Copy(S, N, (Length(S) - N + 1));
+end;
+
+function StrLeft(const S: string; Count: Integer): string;
+begin
+  Result := Copy(S, 1, Count);
+end;
+
+function StrAfter(const SubStr, S: string): string;
+var
+  P: Integer;
+begin
+  P := Pos(SubStr, S); // StrFind is case-insensitive pos
+  if P <= 0 then
+    Result := ''           // substr not found -> nothing after it
+  else
+    Result := StrRestOf(S, P + Length(SubStr));
+end;
+
+function StrBefore(const SubStr, S: string): string;
+var
+  P: Integer;
+begin
+  P := Pos(SubStr, S);
+  if P <= 0 then
+    Result := S
+  else
+    Result := StrLeft(S, P - 1);
+end;
+
 
 { TJSDebugServer }
 
