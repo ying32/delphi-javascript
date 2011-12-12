@@ -37,6 +37,7 @@ function main()
    MainForm.Edit1.Text = 'Sample text';
 
    MainForm.OnMouseUp = FormMouseUp;
+   MainForma.aaa = 0;
 
    // OnExit event
    // Events supported is all TNotify events and keyevents  and mousevents

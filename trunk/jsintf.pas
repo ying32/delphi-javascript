@@ -538,7 +538,7 @@ begin
   FDebuggerScripts := TJSDebuggerScripts.Create;
   FMethodNamesMap := TDictionary<string, TJSMethod>.Create;
 
-  strictMode := true;
+  //strictMode := true;
 end;
 
 function TJSEngine.Declare(val: Integer; const Name: String): boolean;
