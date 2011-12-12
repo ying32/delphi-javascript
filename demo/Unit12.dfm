@@ -31,4 +31,11 @@ object Form12: TForm12
     TabOrder = 1
     Text = 'Edit1'
   end
+  object Memo1: TMemo
+    Left = 360
+    Top = 40
+    Width = 249
+    Height = 265
+    TabOrder = 2
+  end
 end

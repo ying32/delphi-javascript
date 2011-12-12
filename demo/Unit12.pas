@@ -18,6 +18,7 @@ type
   TForm12 = class(TForm)
     Edit1: TEdit;
     Edit2: TEdit;
+    Memo1: TMemo;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
   private
@@ -31,6 +32,9 @@ type
     [JSExclude()]
     procedure testjsother;
   end;
+
+  // This is been used for regsitering delphi procedures @ JS Global context
+  // all class methods will be registered, anything else will be ignored
 
   TJSGlobalFunctions = class
     class procedure ShowMessage(s: string);
@@ -48,7 +52,7 @@ procedure TForm12.FormCreate(Sender: TObject);
 begin
   FJSEngine := TJSEngine.Create;
   FJSEngine.registerGlobalFunctions(TJSGlobalFunctions);
-  FJSEngine.registerClasses([TEdit, TForm, TCheckBox, TFileStream]);
+  FJSEngine.registerClasses([TEdit, TForm, TLabel, TCheckBox, TFileStream]);
   FJSAppObject:= TJSAppObject.CreateJSObject(FJSEngine, 'App') ;
   TJSClass.CreateJSObject(Self, FJSEngine, 'MainForm', [cfaInheritedMethods, cfaInheritedProperties]);
 //  FJSEngine.Evaluate(TJSScript.LoadScript('test.js'), ':ApplicationInitScript:');
@@ -90,7 +94,7 @@ end;
 
 procedure TJSAppObject.testCall;
 begin
-  showMessage('testCall');
+  Form12.Memo1.Lines.Add('testCall');
 end;
 
 end.
