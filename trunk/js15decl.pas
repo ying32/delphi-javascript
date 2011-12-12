@@ -47,10 +47,15 @@ const
   JS_MAP_GCROOT_REMOVE = 2;
 
   (* May be private *)
-  JSOPTION_STRICT = 0;
-  JSOPTION_WERROR = 1;
-  JSOPTION_VAROBJFIX = 2;
-  JSOPTION_PRIVATE_IS_NSISUPPORTS = 4;
+  JSOPTION_STRICT                 = 1 shl 0;
+  JSOPTION_WERROR                 = 1 shl 1;
+  JSOPTION_VAROBJFIX              = 1 shl 2;
+  JSOPTION_PRIVATE_IS_NSISUPPORTS = 1 shl 3;
+  JSOPTION_COMPILE_N_GO           = 1 shl 4;
+  JSOPTION_ATLINE                 = 1 shl 5;
+  JSOPTION_XML                    = 1 shl 6;
+  JSOPTION_NATIVE_BRANCH_CALLBACK = 1 shl 7;
+  JSOPTION_DONT_REPORT_UNCAUGHT   = 1 shl 8;
 
   (* Numeric equivalents of javascript versions *)
   JSVERSION_1_0 = 100;
