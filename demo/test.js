@@ -22,12 +22,12 @@ function FormMouseUp(Sender, Button, Shift, X, Y)
 
 function main()
 {
+
+
    // Sample bellow will work with Delphi XE2 or later
    // For been able to access Indexed properties from JS you need Delphi XE2
    // or later cause this version implement index properties access with RTTI
    //var c = MainForm.Controls[0].Name;
-
-
 
    if (FileExists(fileName))
    {
@@ -45,7 +45,7 @@ function main()
    // OnExit event
    // Events supported is all TNotify events and keyevents  and mousevents
    MainForm.Edit1.OnExit = OnExit;
-   MainForm.Caption = 'Dummy cvapto '+c;
+   MainForm.Caption = 'Dummy cvapto ';
 
    // Add some controls
    var newLabel = new TLabel(MainForm);
