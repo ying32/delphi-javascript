@@ -1,7 +1,4 @@
-{ .$FINITEFLOAT OFF }
-
 unit jsintf;
-
 interface
 
 uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI,
@@ -88,6 +85,8 @@ type
   public
     constructor Create(ajsfuncobj: PJSObject; aeventname: string; aobj: TObject; acx: PJSContext);
   end;
+
+  TJSPropRead = reference to function (cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
 
   TJSClassProto = class(TObject)
   private
@@ -2331,33 +2330,53 @@ var
   p: Pointer;
   Obj: TJSClass;
   t: TRttiType;
+{$IF CompilerVersion >= 23}
   prop: TRttiIndexedProperty;
+{$ifend}
   propIndex: Integer;
   iObj: TJSIndexedProperty;
   v: TValue;
 begin
-  // propName := GetParamName(cx, id);
   p := JS_GetPrivate(cx, jsobj);
   if p = nil then
     exit;
   Obj := TJSClass(p);
 
-  // if JSValIsString(id) then   // We have a method call
-  // propName := JSStringToString(JS_ValueToString(cx, id));
-
-  if JSValIsInt(id) and (Obj.FNativeObj is TJSIndexedProperty) then
+{$IF CompilerVersion >= 23}
+  if JSValIsInt(id) then
   begin
-    iObj := TJSIndexedProperty(Obj.FNativeObj);
-    Obj := TJSClass(iObj.parentObj);
-    t := Obj.FClassProto.FRttiType;
-    prop := t.getIndexedProperty(iObj.propName);
-    if prop <> nil then
+    if (Obj.FNativeObj is TJSIndexedProperty)  then
     begin
-      v := JSValToInt(id);
-      v := prop.ReadMethod.Invoke(Obj.FNativeObj, [v]);
-      vp^ := TValueToJSVal(cx, v);
+        iObj := TJSIndexedProperty(Obj.FNativeObj);
+        Obj := TJSClass(iObj.parentObj);
+        t := Obj.FClassProto.FRttiType;
+        prop := t.getIndexedProperty(iObj.propName);
+        if prop <> nil then
+        begin
+          v := JSValToInt(id);
+          v := prop.ReadMethod.Invoke(Obj.FNativeObj, [v]);
+          vp^ := TValueToJSVal(cx, v);
+        end;
+    end
+    else begin
+      // Try default integer indexed property on fields
+
+      p := nil;
+      t := Obj.FClassProto.FRttiType;
+      for prop in t.GetIndexedProperties do
+      begin
+         if prop.isDefault and
+            (Length(prop.ReadMethod.GetParameters) = 1) and
+            (prop.ReadMethod.GetParameters[0].ParamType.Handle = TypeInfo(Integer)) then
+         begin
+            v := JSValToInt(id);
+            v := prop.ReadMethod.Invoke(Obj.FNativeObj, [v]);
+            vp^ := TValueToJSVal(cx, v);
+         end;
+      end;
     end;
   end;
+{$ifend}
 
   Result := js_true;
 
@@ -2381,7 +2400,7 @@ begin
     exit;
 
   Obj := TJSClass(p);
-  // t := Obj.FClassProto.Fctx.GetType(Obj.FClassProto.FClass);
+
   t := Obj.FClassProto.FRttiType;
   propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
   prop := t.getProperty(propName);
@@ -2403,7 +2422,7 @@ begin
             NotifyMethod.Code := @TJSClass.JSNotifyEvent;
             NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
             SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(propName, eventData);
+            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TKeyEvent) then
           begin
@@ -2411,7 +2430,7 @@ begin
             NotifyMethod.Code := @TJSClass.JSKeyEvent;
             NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
             SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(propName, eventData);
+            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TKeyPressEvent) then
           begin
@@ -2419,7 +2438,7 @@ begin
             NotifyMethod.Code := @TJSClass.JSKeyPressEvent;
             NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
             SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(propName, eventData);
+            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TMouseEvent) then
           begin
@@ -2427,7 +2446,7 @@ begin
             NotifyMethod.Code := @TJSClass.JSMouseDownUpEvent;
             NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
             SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(propName, eventData);
+            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TMouseMoveEvent) then
           begin
@@ -2435,7 +2454,7 @@ begin
             NotifyMethod.Code := @TJSClass.JSMouseMoveEvent;
             NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
             SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(propName, eventData);
+            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
           end;
           //
         end;
