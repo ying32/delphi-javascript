@@ -25,7 +25,7 @@ object Form12: TForm12
   end
   object Edit2: TEdit
     Left = 56
-    Top = 200
+    Top = 144
     Width = 121
     Height = 21
     TabOrder = 1
