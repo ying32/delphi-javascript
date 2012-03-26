@@ -4,6 +4,7 @@ interface
 uses SysUtils, Windows;
 
 const
+{.$define MOZILLA_1_8_BRANCH}
 {$ifdef cpux64}
     LibName =  'js64.dll';
 {$else}
@@ -1053,6 +1054,10 @@ procedure JS_XDRInitBase(xdr: PJSXDRState; mode: JSXDRMode; cx: PJSContext); cde
 procedure JS_XDRMemResetData(xdr: PJSXDRState); cdecl; external libName ;
 procedure JS_XDRMemSetData(xdr: PJSXDRState; data: Pointer; len: uint32); cdecl; external libName ;
 
+
+function JS_NewPropertyIterator(cx: PJSContext; obj: PJSObject): PJSObject; cdecl; external libName ;
+function JS_NextProperty(cx: PJSContext; iterobj: PJSObject;  var idp: jsid): JSBOOL; cdecl; external libName ;
+function JS_GetMethodById(cx: PJSContext; obj: PJSObject;id: jsid ;var objp: PJSObject; vp: Pjsval): JSBOOL; cdecl; external libName ;
 
 (* Debug API *)
 //     JS_AliasElement : function (cx: PJSContext; obj: PJSObject; name: PAnsiChar; alias: jsint): JSBool; cdecl;

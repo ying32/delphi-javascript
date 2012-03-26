@@ -2607,6 +2607,11 @@ procedure TJSClass.NewJSObject(Engine: TJSEngine; JSObjectName: string; AInstanc
 var
   B: JSBool;
   c: TClass;
+  iter: PJSObject;
+  id: jsid;
+  nextobj: PJSObject;
+  vp: jsval;
+  n: string;
 begin
 
   if FClassProto <> NIL then
@@ -2631,6 +2636,7 @@ begin
   B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_props[0]);
   B := JS_DefineFunctions(Engine.Context, Fjsobj, @FClassProto.Fclass_methods[0]);
   B := JS_DefineConstDoubles(Engine.Context, Fjsobj, @FClassProto.FConsts[0]);
+
 
 end;
 
@@ -2971,7 +2977,7 @@ begin
     AP: "NotApproved"
     }
   *)
-  if (argc > 0) and (JSValIsObject(argv^) and (JS_GetClass(JSValToObject(argv^)).Name = 'Object')) then
+  if (argc > 0) and (JSValIsObject(argv^) and ((JS_TypeOfValue(cx, argv^) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(argv^)).Name = 'Object')) then
   begin
 
     pObj := JSValToObject(argv^);
