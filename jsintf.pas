@@ -1841,6 +1841,8 @@ begin
 
     if exclude or (p.Visibility < mvPublic) then
       continue;
+    if p.Name = 'WindowState' then
+       exclude := false;
 
     defineEnums(p.PropertyType);
 
