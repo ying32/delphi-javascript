@@ -390,8 +390,8 @@ JSOP_LIMIT
   JSInt64 = Int64;
   JSFloat32 = Single;
   JSFloat64 = Double;
-  JSWord = Integer;
-  JSUWord = LongWord;
+  JSWord = NativeInt;
+  JSUWord = NativeUInt;
   JSBool = JSIntn;
   JSPackedBool = JSUint8;
   JSSize = size_t;

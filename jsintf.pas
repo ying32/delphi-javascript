@@ -519,8 +519,14 @@ end;
 
 constructor TJSEngine.Create(MaxMemory: Cardinal);
 var
-  d: Word;
+  d: word;
+  em: TArithmeticExceptionMask;
 begin
+{$ifdef CPUX64}
+  ClearExceptions(false);
+  SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
+{$ENDIF}
+
   fstackSize := 8192;
   frt := JS_NewRuntime(MaxMemory);
 
