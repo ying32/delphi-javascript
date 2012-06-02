@@ -97,6 +97,8 @@ type
     FClass: TClass;
     Fclass_methods: array of JSFunctionSpec;
     Fclass_props: array of JSPropertySpec;
+    Fclass_indexedProps: array of JSPropertySpec;
+    Fclass_fields: array of JSPropertySpec;
     FConsts: array of JSConstDoubleSpec;
     Fctx: TRttiContext;
     FRttiType: TRttiType;
@@ -132,6 +134,7 @@ type
     class function JSMethodCall(cx: PJSContext; jsobj: PJSObject; argc: uintN; argv, rval: pjsval): JSBool; cdecl; static;
     class function JSPropWrite(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
     class function JSPropRead(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
+    class function JSFieldRead(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
     class function JSPropReadClass(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
 
 {$IF CompilerVersion >= 23}
@@ -1692,6 +1695,8 @@ begin
   FClass := AClass;
   Fclass_methods := NIL;
   Fclass_props := NIL;
+  Fclass_indexedProps := NIL;
+  FClass_fields := nil;
   FConsts := nil;
 
   Fctx := TRttiContext.Create;
@@ -1786,13 +1791,13 @@ begin
       continue;
 
     { TODO : FIXME }
-    if high(Fclass_props) = 255 then
+    if high(Fclass_indexedProps) = 255 then
       break;
-    SetLength(Fclass_props, Length(Fclass_props) + 1);
-    Fclass_props[high(Fclass_props)].flags := JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
-    Fclass_props[high(Fclass_props)].Name := strdup(ip.Name);
-    Fclass_props[high(Fclass_props)].getter := @TJSClass.JSIndexedPropRead;
-    Fclass_props[high(Fclass_props)].tinyid := High(Fclass_props) - 127;
+    SetLength(Fclass_indexedProps, Length(Fclass_indexedProps) + 1);
+    Fclass_indexedProps[high(Fclass_indexedProps)].flags := JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
+    Fclass_indexedProps[high(Fclass_indexedProps)].Name := strdup(ip.Name);
+    Fclass_indexedProps[high(Fclass_indexedProps)].getter := @TJSClass.JSIndexedPropRead;
+    Fclass_indexedProps[high(Fclass_indexedProps)].tinyid := High(Fclass_indexedProps) - 127;
   end;
 
 {$IFEND}
@@ -1818,14 +1823,14 @@ begin
     defineEnums(f.FieldType);
 
     { TODO : FIXME }
-    if high(Fclass_props) = 255 then
+    if high(Fclass_fields) = 255 then
       break;
 
-    SetLength(Fclass_props, Length(Fclass_props) + 1);
-    Fclass_props[high(Fclass_props)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY;
-    Fclass_props[high(Fclass_props)].Name := strdup(f.Name);
-    Fclass_props[high(Fclass_props)].getter := @TJSClass.JSPropRead;
-    Fclass_props[high(Fclass_props)].tinyid := High(Fclass_props) - 127;
+    SetLength(Fclass_fields, Length(Fclass_fields) + 1);
+    Fclass_fields[high(Fclass_fields)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY;
+    Fclass_fields[high(Fclass_fields)].Name := strdup(f.Name);
+    Fclass_fields[high(Fclass_fields)].getter := @TJSClass.JSFieldRead;
+    Fclass_fields[high(Fclass_fields)].tinyid := High(Fclass_fields) - 127;
 
   end;
 
@@ -1872,10 +1877,14 @@ begin
 
   // NULL terminate array
   SetLength(Fclass_props, Length(Fclass_props) + 1);
+  SetLength(Fclass_indexedProps, Length(Fclass_indexedProps) + 1);
+  SetLength(Fclass_fields, Length(Fclass_fields) + 1);
   SetLength(Fclass_methods, Length(Fclass_methods) + 1);
   SetLength(FConsts, Length(FConsts) + 1);
 
   FillChar(Fclass_props[Length(Fclass_props) - 1], SizeOf(JSPropertySpec), 0);
+  FillChar(Fclass_indexedProps[Length(Fclass_indexedProps) - 1], SizeOf(JSPropertySpec), 0);
+  FillChar(Fclass_fields[Length(Fclass_fields) - 1], SizeOf(JSPropertySpec), 0);
   FillChar(Fclass_methods[Length(Fclass_methods) - 1], SizeOf(JSFunctionSpec), 0);
   FillChar(FConsts[Length(FConsts) - 1], SizeOf(JSConstDoubleSpec), 0);
 
@@ -1934,6 +1943,8 @@ begin
     if FJSClassProto <> nil then
     begin
       JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_props[0]);
+      JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_indexedProps[0]);
+      JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_fields[0]);
       JS_DefineFunctions(AEngine.Context, FJSClassProto, @Fclass_methods[0]);
 
       JS_DefineConstDoubles(AEngine.Context, AEngine.Global.JSObject, @FConsts[0]);
@@ -2309,7 +2320,6 @@ var
   t: TRttiType;
   prop: TRttiProperty;
   propIndex: Integer;
-  f: TRttiField;
 begin
   p := JS_GetPrivate(cx, jsobj);
   if p = nil then
@@ -2322,13 +2332,7 @@ begin
   if prop <> nil then
     vp^ := TValueToJSVal(cx, prop.GetValue(Obj.FNativeObj))
   else
-  begin
-    f := t.getField(propName);
-    if f <> nil then
-      vp^ := TValueToJSVal(cx, f.GetValue(Obj.FNativeObj))
-    else
-      vp^ := JSVAL_NULL;
-  end;
+    vp^ := JSVAL_NULL;
   Result := js_true;
 end;
 
@@ -2641,7 +2645,12 @@ begin
   FJSObject := TJSObject.Create(Fjsobj, Engine, JSObjectName);
   JS_SetPrivate(Engine.Context, Fjsobj, Pointer(self));
 
-  B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_props[0]);
+  if length(FClassProto.Fclass_props) > 0 then
+     B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_props[0]);
+  if length(FClassProto.Fclass_indexedProps) > 0 then
+     B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_indexedProps[0]);
+  if length(FClassProto.Fclass_fields) > 0 then
+     B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_fields[0]);
   B := JS_DefineFunctions(Engine.Context, Fjsobj, @FClassProto.Fclass_methods[0]);
   B := JS_DefineConstDoubles(Engine.Context, Fjsobj, @FClassProto.FConsts[0]);
 
@@ -2704,6 +2713,7 @@ begin
     tkClass:
       begin
         Obj := Value.AsObject;
+//        outputdebugstring(pwidechar(obj.classname));
         eng := TJSClass.JSEngine(cx);
         Result := JSVAL_NULL;
         for classProto in eng.FDelphiClasses.Values do
@@ -3118,6 +3128,31 @@ begin
   Result := FJSEngine;
 end;
 
+class function TJSClass.JSFieldRead(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
+var
+  fieldName: String;
+  p: Pointer;
+  Obj: TJSClass;
+  t: TRttiType;
+  propIndex: Integer;
+  f: TRttiField;
+begin
+  p := JS_GetPrivate(cx, jsobj);
+  if p = nil then
+    exit;
+  Obj := TJSClass(p);
+  t := Obj.FClassProto.FRttiType;
+
+  fieldName := Obj.FClassProto.Fclass_fields[JSValToInt(id) + 127].Name;
+  f := t.getField(fieldName);
+  if f <> nil then
+    vp^ := TValueToJSVal(cx, f.GetValue(Obj.FNativeObj))
+  else
+    vp^ := JSVAL_NULL;
+  Result := js_true;
+
+end;
+
 {$IF CompilerVersion >= 23}
 
 class function TJSClass.JSIndexedPropRead(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
@@ -3138,7 +3173,7 @@ begin
   Obj := TJSClass(p);
   t := Obj.FClassProto.FRttiType;
 
-  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
+  propName := Obj.FClassProto.Fclass_indexedProps[JSValToInt(id) + 127].Name;
   prop := t.getIndexedProperty(propName);
   if prop <> nil then
   begin
