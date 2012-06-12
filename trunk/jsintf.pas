@@ -1626,9 +1626,10 @@ var
   f: TRttiField;
   // a: TRttiParameter;
 
+  tinyid: shortInt;
   jsobj: PJSObject;
   jsp: PJSObject;
-  i: Integer;
+  j,i: Integer;
   Enums: TDictionary<string, Integer>;
   a: TCustomAttribute;
   exclude: boolean;
@@ -1790,17 +1791,21 @@ begin
     if (ip.ReadMethod.GetParameters[0].ParamType.Handle <> TypeInfo(Integer)) then
       continue;
 
-    { TODO : FIXME }
-    if high(Fclass_indexedProps) = 255 then
-      break;
     SetLength(Fclass_indexedProps, Length(Fclass_indexedProps) + 1);
     Fclass_indexedProps[high(Fclass_indexedProps)].flags := JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
     Fclass_indexedProps[high(Fclass_indexedProps)].Name := strdup(ip.Name);
     Fclass_indexedProps[high(Fclass_indexedProps)].getter := @TJSClass.JSIndexedPropRead;
     Fclass_indexedProps[high(Fclass_indexedProps)].tinyid := High(Fclass_indexedProps) - 127;
+
+    { TODO : FIXME }
+    if high(Fclass_indexedProps) = 255 then
+      break;
+
   end;
 
 {$IFEND}
+
+  //tinyid := -127;
   for f in FRttiType.GetFields do
   begin
 
@@ -1822,15 +1827,15 @@ begin
 
     defineEnums(f.FieldType);
 
-    { TODO : FIXME }
-    if high(Fclass_fields) = 255 then
-      break;
-
     SetLength(Fclass_fields, Length(Fclass_fields) + 1);
     Fclass_fields[high(Fclass_fields)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY;
     Fclass_fields[high(Fclass_fields)].Name := strdup(f.Name);
     Fclass_fields[high(Fclass_fields)].getter := @TJSClass.JSFieldRead;
     Fclass_fields[high(Fclass_fields)].tinyid := High(Fclass_fields) - 127;
+
+    { TODO : FIXME }
+    if high(Fclass_fields) = 255 then
+      break;
 
   end;
 
@@ -1857,9 +1862,6 @@ begin
 
     defineEnums(p.PropertyType);
 
-    { TODO : FIXME }
-    if high(Fclass_props) = 255 then
-      break;
     SetLength(Fclass_props, Length(Fclass_props) + 1);
     Fclass_props[high(Fclass_props)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT;
     Fclass_props[high(Fclass_props)].Name := strdup(p.Name);
@@ -1872,6 +1874,10 @@ begin
       Fclass_props[high(Fclass_props)].flags := Fclass_props[high(Fclass_props)].flags or JSPROP_READONLY;
 
     Fclass_props[high(Fclass_props)].tinyid := High(Fclass_props) - 127;
+
+    { TODO : FIXME }
+    if high(Fclass_props) = 255 then
+      break;
 
   end;
 
