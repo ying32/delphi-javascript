@@ -161,7 +161,7 @@ type
     constructor CreateJSObject(AEngine: TJSEngine; JSObjectName: string = ''); overload; virtual;
     destructor Destroy; override;
 
-    class function TValueToJSVal(cx: PJSContext; Value: TValue): jsval; overload;
+    class function TValueToJSVal(cx: PJSContext; Value: TValue; isDateTime: boolean = false): jsval; overload;
     class function JSValToTValue(cx: PJSContext; t: PTypeInfo; vp: jsval): TValue; overload;
     class function JSArgsToTValues(params: TArray<TRttiParameter>; cx: PJSContext; jsobj: PJSObject; argc: uintN;
       argv: pjsval): TArray<TValue>; overload;
@@ -2336,7 +2336,7 @@ begin
   propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
   prop := t.getProperty(propName);
   if prop <> nil then
-    vp^ := TValueToJSVal(cx, prop.GetValue(Obj.FNativeObj))
+    vp^ := TValueToJSVal(cx, prop.GetValue(Obj.FNativeObj), prop.propertytype.name = 'TDateTime')
   else
     vp^ := JSVAL_NULL;
   Result := js_true;
@@ -2663,7 +2663,7 @@ begin
 
 end;
 
-class function TJSClass.TValueToJSVal(cx: PJSContext; Value: TValue): jsval;
+class function TJSClass.TValueToJSVal(cx: PJSContext; Value: TValue; isDateTime: boolean): jsval;
 var
   L: LongWord;
   B: Byte;
@@ -2672,8 +2672,10 @@ var
   eng: TJSEngine;
   classProto: TJSClassProto;
   v: TValue;
-  jsarr: PJSObject;
-  val: jsval;
+  jsarr, jsobj: PJSObject;
+  vr, val: jsval;
+  argv: array[0..10] of jsval;
+  oDate: PJSObject;
 
 begin
   Result := JSVAL_NULL;
@@ -2713,7 +2715,31 @@ begin
     tkInt64, tkInteger:
       Result := IntToJSVal(Value.AsInt64);
     tkFloat:
-      Result := DoubleToJSVal(cx, Value.AsExtended);
+      begin
+         //Result := DoubleToJSVal(cx, DateTimeToUnix(Value.AsExtended)*1000); // default fallback to float
+         Result := DoubleToJSVal(cx, Value.AsExtended); // default fallback to float
+         if isDateTime then
+         begin
+           argv[0] := IntToJsVal(YearOf(Value.AsExtended));
+           argv[1] := IntToJsVal(MonthOf(Value.AsExtended));
+           argv[2] := IntToJsVal(DayOf(Value.AsExtended));
+           argv[3] := IntToJsVal(HourOf(Value.AsExtended));
+           argv[4] := IntToJsVal(MinuteOf(Value.AsExtended));
+           argv[5] := IntToJsVal(SecondOf(Value.AsExtended));
+           argv[6] := IntToJsVal(MillisecondOf(Value.AsExtended));
+
+           eng := TJSClass.JSEngine(cx);
+           try
+             // year, month, day, hours, minutes, seconds, milliseconds
+             oDate := JS_ConstructObjectWithArguments(cx, eng.DateClass,nil, nil, 7, @argv);
+             if oDate <> NIL then
+                Result := JSObjectToJSVal(oDate);
+           except
+           end;
+         end;
+
+
+      end;
     tkLString, tkWString, tkUString:
       Result := StringToJSVal(cx, Value.AsString);
     tkClass:
@@ -3248,7 +3274,8 @@ begin
   f_argv[0] := JSObjectToJSVal(TJSClass(eventData.fobj).{ FJSObject. } Fjsobj);
   f_argv[1] := StringToJSVal(eventData.fcx, Key);
 
-  if JS_CallFunctionValue(eventData.fcx, eventData.fjsfuncobj, JSObjectToJSVal(eventData.fjsfuncobj), 2, @f_argv,
+  if JS_CallFunctionValue(eventData.fcx, eventData.fjsfuncobj,
+                  JSObjectToJSVal(eventData.fjsfuncobj), 2, @f_argv,
     @f_rval) = js_true then
   begin
     f_rval := 0;

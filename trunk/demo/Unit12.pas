@@ -25,12 +25,16 @@ type
     { Private declarations }
     FJSEngine: TJSEngine;
     FJSAppObject: TJSAppObject;
+    FDT: TDateTime;
+    function GetTestDT: TDateTime;
+    procedure SetTestDT(const Value: TDateTime);
   public
     { Public declarations }
     procedure testjs;
 
     [JSExclude()]
     procedure testjsother;
+    property TestDateTime: TDateTime read GetTestDT write SetTestDT;
   end;
 
   // This is been used for regsitering delphi procedures @ JS Global context
@@ -50,6 +54,7 @@ implementation
 
 procedure TForm12.FormCreate(Sender: TObject);
 begin
+  FDT := now;
   FJSEngine := TJSEngine.Create;
   FJSEngine.registerGlobalFunctions(TJSGlobalFunctions);
   FJSEngine.registerClasses([TEdit, TForm, TLabel, TCheckBox, TFileStream]);
@@ -65,6 +70,16 @@ begin
   FJSEngine.free;
 end;
 
+
+function TForm12.GetTestDT: TDateTime;
+begin
+  result := FDT ;
+end;
+
+procedure TForm12.SetTestDT(const Value: TDateTime);
+begin
+  fdt := value;
+end;
 
 procedure TForm12.testjs;
 var s: string;

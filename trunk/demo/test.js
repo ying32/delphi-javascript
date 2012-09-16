@@ -29,6 +29,7 @@ function main()
    // or later cause this version implement index properties access with RTTI
    //var c = MainForm.Controls[0].Name;
 
+   ShowMessage('Test datetime '+new Date(MainForm.TestDateTime));
    if (FileExists(fileName))
    {
       var file = new TFileStream(fileName, fmOpenRead);
@@ -62,7 +63,7 @@ function main()
    newEdit.Top = 30;
 
    App.testCall();
-   ShowMessage('Test message');
+//   ShowMessage('Test message');
 
 }
 
