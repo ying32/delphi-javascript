@@ -1,4 +1,4 @@
-unit jsintf;
+﻿unit jsintf;
 interface
 
 uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI,
@@ -1751,6 +1751,15 @@ begin
     if (m.parent <> FRttiType) and (not(cfaInheritedMethods in clFlags)) then
       exclude := true;
 
+    //outputdebugstring(pchar('methodname: ' + methodName));
+    if methodName = 'Read' then
+       methodName := methodName;
+
+    //try
+{$IF CompilerVersion >= 24}
+    if not m.HasExtendedInfo then continue;
+{$ifend}
+
     if exclude or m.IsConstructor or m.IsDestructor or m.IsStatic or m.IsClassMethod or
       (not(m.MethodKind in [mkProcedure, mkFunction])) or (m.Visibility < mvPublic) then
       continue;
@@ -2721,8 +2730,8 @@ begin
          if isDateTime then
          begin
            argv[0] := IntToJsVal(YearOf(Value.AsExtended));
-           argv[1] := IntToJsVal(MonthOf(Value.AsExtended));
-           argv[2] := IntToJsVal(DayOf(Value.AsExtended)-1);
+           argv[1] := IntToJsVal(MonthOf(Value.AsExtended)-1);
+           argv[2] := IntToJsVal(DayOf(Value.AsExtended));
            argv[3] := IntToJsVal(HourOf(Value.AsExtended));
            argv[4] := IntToJsVal(MinuteOf(Value.AsExtended));
            argv[5] := IntToJsVal(SecondOf(Value.AsExtended));
