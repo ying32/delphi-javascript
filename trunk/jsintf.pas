@@ -779,7 +779,7 @@ var
   r: JSBool;
 begin
   {
-    Do not pass a pointer to a JS double, string, or object—rp must be either a pointer to a pointer variable
+    Do not pass a pointer to a JS double, string, or objectÂ—rp must be either a pointer to a pointer variable
     or a pointer to a jsval variable.
   }
 
@@ -2722,7 +2722,7 @@ begin
          begin
            argv[0] := IntToJsVal(YearOf(Value.AsExtended));
            argv[1] := IntToJsVal(MonthOf(Value.AsExtended));
-           argv[2] := IntToJsVal(DayOf(Value.AsExtended));
+           argv[2] := IntToJsVal(DayOf(Value.AsExtended)-1);
            argv[3] := IntToJsVal(HourOf(Value.AsExtended));
            argv[4] := IntToJsVal(MinuteOf(Value.AsExtended));
            argv[5] := IntToJsVal(SecondOf(Value.AsExtended));
