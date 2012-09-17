@@ -1,3 +1,4 @@
+{$METHODINFO ON}
 program js_tests;
 
 uses
