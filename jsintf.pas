@@ -166,7 +166,8 @@ type
     class function JSArgsToTValues(params: TArray<TRttiParameter>; cx: PJSContext; jsobj: PJSObject; argc: uintN;
       argv: pjsval): TArray<TValue>; overload;
 
-    class function JSDateToDateTime(JSEngine: TJSEngine; oDate: PJSObject; var dDate: TDateTime): boolean;
+    class function JSDateToDateTime(JSEngine: TJSEngine; oDate: PJSObject; var dDate: TDateTime
+    ): boolean;
     class function JSEngine(cx: PJSContext): TJSEngine; overload;
     class function JSPrintf(JSEngine: TJSEngine; const fmt: String; argc: Integer; args: pjsval): String;
 
@@ -3091,8 +3092,6 @@ end;
 class function TJSClass.JSDateToDateTime(JSEngine: TJSEngine; oDate: PJSObject; var dDate: TDateTime): boolean;
 var
   vp: jsval;
-  fval: jsval;
-
   d, m, Y, h, mn, s, ml: Integer;
   cx: PJSContext;
 begin
@@ -3102,62 +3101,41 @@ begin
   if (JS_InstanceOf(cx, oDate, JSEngine.DateClass, nil) = JS_FALSE) then
     exit;
 
-  if JS_GetUCProperty(cx, oDate, PWideChar(WideString('getDate')), Length('getDate'), @fval) = js_true then
-  begin
-    if JS_CallFunction(cx, oDate, JS_ValueToFunction(cx, fval), 0, nil, @vp) = JS_FALSE then
-      exit;
-    if JSValIsInt(vp) then
-      d := JSValToInt(vp);
-  end;
+  if JS_CallFunctionName(cx, oDate, PAnsiChar(AnsiString('getDate')), 0, nil, @vp) = JS_FALSE then
+     exit
+  else if JSValIsInt(vp) then
+     d := JSValToInt(vp);
 
-  if JS_GetUCProperty(cx, oDate, PWideChar(WideString('getMonth')), Length('getMonth'), @fval) = js_true then
-  begin
-    if JS_CallFunction(cx, oDate, JS_ValueToFunction(cx, fval), 0, nil, @vp) = JS_FALSE then
-      exit;
-    if JSValIsInt(vp) then
+  if JS_CallFunctionName(cx, oDate, PAnsiChar(AnsiString('getMonth')), 0, nil, @vp) = JS_FALSE then
+     exit;
+  if JSValIsInt(vp) then
       m := JSValToInt(vp) + 1;
-  end;
 
-  if JS_GetUCProperty(cx, oDate, PWideChar(WideString('getFullYear')), Length('getFullYear'), @fval) = js_true then
-  begin
-    if JS_CallFunction(cx, oDate, JS_ValueToFunction(cx, fval), 0, nil, @vp) = JS_FALSE then
-      exit;
-    if JSValIsInt(vp) then
+  if JS_CallFunctionName(cx, oDate, PAnsiChar(AnsiString('getFullYear')), 0, nil, @vp) = JS_FALSE then
+     exit;
+
+  if JSValIsInt(vp) then
       Y := JSValToInt(vp);
-  end;
 
-  if JS_GetUCProperty(cx, oDate, PWideChar(WideString('getHours')), Length('getHours'), @fval) = js_true then
-  begin
-    if JS_CallFunction(cx, oDate, JS_ValueToFunction(cx, fval), 0, nil, @vp) = JS_FALSE then
-      exit;
-    if JSValIsInt(vp) then
+  if JS_CallFunctionName(cx, oDate, PAnsiChar(AnsiString('getHours')), 0, nil, @vp) = JS_FALSE then
+     exit;
+  if JSValIsInt(vp) then
       h := JSValToInt(vp);
-  end;
 
-  if JS_GetUCProperty(cx, oDate, PWideChar(WideString('getMinutes')), Length('getMinutes'), @fval) = js_true then
-  begin
-    if JS_CallFunction(cx, oDate, JS_ValueToFunction(cx, fval), 0, nil, @vp) = JS_FALSE then
-      exit;
-    if JSValIsInt(vp) then
+  if JS_CallFunctionName(cx, oDate, PAnsiChar(AnsiString('getMinutes')), 0, nil, @vp) = JS_FALSE then
+     exit;
+  if JSValIsInt(vp) then
       mn := JSValToInt(vp);
-  end;
 
-  if JS_GetUCProperty(cx, oDate, PWideChar(WideString('getSeconds')), Length('getSeconds'), @fval) = js_true then
-  begin
-    if JS_CallFunction(cx, oDate, JS_ValueToFunction(cx, fval), 0, nil, @vp) = JS_FALSE then
-      exit;
-    if JSValIsInt(vp) then
+  if JS_CallFunctionName(cx, oDate, PAnsiChar(AnsiString('getSeconds')), 0, nil, @vp) = JS_FALSE then
+     exit;
+  if JSValIsInt(vp) then
       s := JSValToInt(vp);
-  end;
 
-  if JS_GetUCProperty(cx, oDate, PWideChar(WideString('getMilliseconds')), Length('getMilliseconds'), @fval) = js_true
-  then
-  begin
-    if JS_CallFunction(cx, oDate, JS_ValueToFunction(cx, fval), 0, nil, @vp) = JS_FALSE then
-      exit;
-    if JSValIsInt(vp) then
+  if JS_CallFunctionName(cx, oDate, PAnsiChar(AnsiString('getMilliseconds')), 0, nil, @vp) = JS_FALSE then
+     exit;
+  if JSValIsInt(vp) then
       ml := JSValToInt(vp);
-  end;
 
   dDate := encodeDateTime(Y, m, d, h, mn, s, ml);
   Result := true;

@@ -58,16 +58,19 @@ var
   ctx: TRttiContext;
   RttiType: TRttiType;
   m: TRttiMethod;
+  n: string;
 begin
-{  ctx := TRttiContext.Create;
+  ctx := TRttiContext.Create;
   RttiType := ctx.GetType(TFileStream);
   for m in RttiType.GetMethods do
   begin
-   if m.IsConstructor or m.IsDestructor or m.IsStatic or m.IsClassMethod or
+   n := m.name;
+  { if m.IsConstructor or m.IsDestructor or m.IsStatic or m.IsClassMethod or
       (not(m.MethodKind in [mkProcedure, mkFunction])) or (m.Visibility < mvPublic) then
       continue;
+  }
   end;
- }
+
   FDT := now;
   FJSEngine := TJSEngine.Create;
   FJSEngine.registerGlobalFunctions(TJSGlobalFunctions);
