@@ -571,13 +571,26 @@ begin
 end;
 
 destructor TJSEngine.Destroy;
+var
+  p: TJSClassProto;
 begin
+
+
   JS_DestroyContext(fcx);
   JS_DestroyRuntime(frt);
+
+  try
+    for p in FDelphiClasses.Values do
+      p.free;
+  except
+
+  end;
+
   fnativeglobal.Free;
   FDelphiClasses.Free;
   FDebuggerScripts.Free;
   FMethodNamesMap.Free;
+
   inherited;
 end;
 
@@ -857,7 +870,7 @@ var
   methods: TJSFunctionSpecArray;
   method: TJSMethod;
   f: TRttiField;
-
+  i: integer;
 begin
   // setter.Invoke(TClass(Instance), argsV)
   methods := nil;
@@ -905,6 +918,10 @@ begin
   begin
     SetLength(methods, Length(methods) + 1);
     JS_DefineFunctions(Context, fglobal, @methods[0]);
+    for i:=0 to high(methods) do
+    begin
+       freeMem(methods[i].name);
+    end;
   end;
 
 end;
@@ -1923,6 +1940,13 @@ destructor TJSClassProto.Destroy;
 var
   i: Integer;
 begin
+
+  for i := 0 to High(Fclass_fields) - 1 do
+    freeMem(Fclass_fields[i].Name);
+
+  for i := 0 to High(Fclass_indexedProps) - 1 do
+    freeMem(Fclass_indexedProps[i].Name);
+
   for i := 0 to High(Fclass_methods) - 1 do
     freeMem(Fclass_methods[i].Name);
 
