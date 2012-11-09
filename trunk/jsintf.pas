@@ -923,7 +923,7 @@ begin
        freeMem(methods[i].name);
     end;
   end;
-
+  ctx.Free;
 end;
 
 procedure TJSEngine.SetDebugging(const Value: boolean);
