@@ -919,9 +919,7 @@ begin
     SetLength(methods, Length(methods) + 1);
     JS_DefineFunctions(Context, fglobal, @methods[0]);
     for i:=0 to high(methods) do
-    begin
        freeMem(methods[i].name);
-    end;
   end;
   ctx.Free;
 end;
@@ -2846,6 +2844,8 @@ var
 begin
   if (cfaOwnObject in FClassProto.FClassFlags) and Assigned(FNativeObj) and (FNativeObj <> self) then
     FNativeObj.Free;
+  if assigned(FJSObject) then
+     FJSObject.Free;
   inherited;
 end;
 
