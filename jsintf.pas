@@ -578,7 +578,7 @@ begin
 
   JS_DestroyContext(fcx);
   JS_DestroyRuntime(frt);
-
+//  inherited; exit;
   try
     for p in FDelphiClasses.Values do
       p.free;
@@ -1176,8 +1176,19 @@ begin
 end;
 
 destructor TJSObject.Destroy;
+var
+  rval: jsval;
 begin
   // fnatives.Free;
+{  Destroying := True;
+
+  if (FEngine <> nil) then
+    try
+      if (FName <> '') and (Fjsobj <> nil) then
+        JS_DeleteUCProperty2(FEngine.Context, Fjsobj, PWideChar(FName), Length(FName), @rval);
+    except
+    end;
+}
   inherited;
 end;
 
