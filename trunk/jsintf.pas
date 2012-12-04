@@ -1688,6 +1688,8 @@ var
 
   begin
     // FindIntToIdent(pt.handle);
+    if pt = nil then exit;
+    
     if pt.Handle^.Kind = tkEnumeration then
     begin
       ot := pt.AsOrdinal;
