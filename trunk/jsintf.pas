@@ -1,7 +1,7 @@
 ﻿unit jsintf;
 interface
 
-uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI,
+uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI, types,
   Generics.Collections, SysUtils, Windows, Controls, syncObjs, JSDbgServer, forms, dialogs;
 
 const
@@ -10,6 +10,7 @@ const
     enumerate: JS_EnumerateStub; resolve: JS_ResolveStub; convert: JS_ConvertStub; finalize: JS_FinalizeStub);
 
 type
+  TJSPropertiesDynArray =  array of JSPropertySpec;
   PWord = ^Word;
   PInteger = ^Integer;
 
@@ -96,9 +97,11 @@ type
     FJSClass: JSExtendedClass;
     FClass: TClass;
     Fclass_methods: array of JSFunctionSpec;
-    Fclass_props: array of JSPropertySpec;
-    Fclass_indexedProps: array of JSPropertySpec;
-    Fclass_fields: array of JSPropertySpec;
+
+    Fclass_props: TJSPropertiesDynArray;
+    Fclass_indexedProps: TJSPropertiesDynArray;
+    Fclass_fields: TJSPropertiesDynArray;
+
     FConsts: array of JSConstDoubleSpec;
     Fctx: TRttiContext;
     FRttiType: TRttiType;
@@ -114,6 +117,7 @@ type
   public
     constructor Create(AClass: TClass; AClassFlags: TJSClassFlagAttributes = []);
     destructor Destroy; override;
+    class procedure DefineProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
 
     property JSClassName: string read getJSClassName;
     property JSClassProto: PJSObject read FJSClassProto;
@@ -1835,10 +1839,6 @@ begin
     Fclass_indexedProps[high(Fclass_indexedProps)].getter := @TJSClass.JSIndexedPropRead;
     Fclass_indexedProps[high(Fclass_indexedProps)].tinyid := High(Fclass_indexedProps) - 127;
 
-    { TODO : FIXME }
-    if high(Fclass_indexedProps) = 255 then
-      break;
-
   end;
 
 {$IFEND}
@@ -1870,10 +1870,6 @@ begin
     Fclass_fields[high(Fclass_fields)].Name := strdup(f.Name);
     Fclass_fields[high(Fclass_fields)].getter := @TJSClass.JSFieldRead;
     Fclass_fields[high(Fclass_fields)].tinyid := High(Fclass_fields) - 127;
-
-    { TODO : FIXME }
-    if high(Fclass_fields) = 255 then
-      break;
 
   end;
 
@@ -1913,10 +1909,6 @@ begin
 
     Fclass_props[high(Fclass_props)].tinyid := High(Fclass_props) - 127;
 
-    { TODO : FIXME }
-    if high(Fclass_props) = 255 then
-      break;
-
   end;
 
   // NULL terminate array
@@ -1944,6 +1936,32 @@ begin
   FJSClass.Base.convert := JS_ConvertStub;
   FJSClass.Base.finalize := TJSClass.JSObjectDestroy;
   FreeAndNil(Enums);
+
+end;
+
+class procedure TJSClassProto.DefineProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
+var
+  i: Integer;
+begin
+      for i := 0 to High(Props) do
+      begin
+         if Props[i].name = NIL then continue;
+
+         JS_DefineProperty( cx,
+                            obj,
+                            Props[i].name,
+                            JSVAL_NULL,
+                            Props[i].getter,
+                            Props[i].setter,
+                            Props[i].flags);
+
+{
+JSBool JS_DefineProperty(JSContext *cx, JSObject *obj,
+    const char *name, jsval value, JSPropertyOp getter,
+    JSStrictPropertyOp setter, unsigned attrs); }
+
+      end;
+
 
 end;
 
@@ -1985,26 +2003,21 @@ procedure TJSClassProto.JSInitClass(AEngine: TJSEngine);
 var
   B: JSBool;
   ctorObj: PJSObject;
+  i: Integer;
 begin
   if FJSClassProto = nil then
   begin
     FJSClassProto := JS_InitClass(AEngine.Context, AEngine.Global.JSObject, nil, @FJSClass, @TJSClass.JSObjectCtor, 0,
-      // @Fclass_props[0], @Fclass_methods[0], nil, nil);
       nil, nil, nil, nil);
     if FJSClassProto <> nil then
     begin
-      JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_props[0]);
-      JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_indexedProps[0]);
-      JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_fields[0]);
+      //JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_props[0]);
       JS_DefineFunctions(AEngine.Context, FJSClassProto, @Fclass_methods[0]);
-
       JS_DefineConstDoubles(AEngine.Context, AEngine.Global.JSObject, @FConsts[0]);
-      { ctorObj := JS_GetConstructor(AEngine.Context, FJSClassProto);
-        if ctorObj <> nil then
-        begin
-        JS_DefineConstDoubles(AEngine.Context, ctorObj, @FConsts[0]);
-        end;
-      }
+
+      TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_fields);
+      TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_props);
+      TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_indexedProps);
     end;
   end;
 
@@ -2378,7 +2391,8 @@ begin
   Obj := TJSClass(p);
   t := Obj.FClassProto.FRttiType;
 
-  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
+  propName := JSValToString(cx, id);
+//  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
   prop := t.getProperty(propName);
   if prop <> nil then
     vp^ := TValueToJSVal(cx, prop.GetValue(Obj.FNativeObj), prop.propertytype.name = 'TDateTime')
@@ -2465,7 +2479,8 @@ begin
   Obj := TJSClass(p);
 
   t := Obj.FClassProto.FRttiType;
-  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
+  propName := JSValToString(cx, id);
+//  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
   prop := t.getProperty(propName);
   if prop <> nil then
   begin
@@ -2697,11 +2712,12 @@ begin
   JS_SetPrivate(Engine.Context, Fjsobj, Pointer(self));
 
   if length(FClassProto.Fclass_props) > 0 then
-     B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_props[0]);
+     TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_props);
   if length(FClassProto.Fclass_indexedProps) > 0 then
-     B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_indexedProps[0]);
+     TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_indexedProps);
   if length(FClassProto.Fclass_fields) > 0 then
-     B := JS_DefineProperties(Engine.Context, Fjsobj, @FClassProto.Fclass_fields[0]);
+     TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_fields);
+
   B := JS_DefineFunctions(Engine.Context, Fjsobj, @FClassProto.Fclass_methods[0]);
   B := JS_DefineConstDoubles(Engine.Context, Fjsobj, @FClassProto.FConsts[0]);
 
@@ -3199,7 +3215,8 @@ begin
   Obj := TJSClass(p);
   t := Obj.FClassProto.FRttiType;
 
-  fieldName := Obj.FClassProto.Fclass_fields[JSValToInt(id) + 127].Name;
+  fieldName := JSValToString(cx, id);
+//  fieldName := Obj.FClassProto.Fclass_fields[JSValToInt(id) + 127].Name;
   f := t.getField(fieldName);
   if f <> nil then
     vp^ := TValueToJSVal(cx, f.GetValue(Obj.FNativeObj))
@@ -3229,7 +3246,8 @@ begin
   Obj := TJSClass(p);
   t := Obj.FClassProto.FRttiType;
 
-  propName := Obj.FClassProto.Fclass_indexedProps[JSValToInt(id) + 127].Name;
+  propName := JSValToString(cx, id);
+//  propName := Obj.FClassProto.Fclass_indexedProps[JSValToInt(id) + 127].Name;
   prop := t.getIndexedProperty(propName);
   if prop <> nil then
   begin
