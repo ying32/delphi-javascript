@@ -2036,6 +2036,7 @@ var
   JSClassName: PAnsiChar;
   params: TArray<TRttiParameter>;
   func: PJSFunction;
+  vp: jsval;
 
 begin
 {$POINTERMATH ON}
