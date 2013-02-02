@@ -2617,9 +2617,13 @@ begin
 
       end;
     tkInt64, tkInteger:
+    begin
       if JSValIsInt(vp) then
-        Result := JSValToInt(vp);
+         Result := JSValToInt(vp)
+      else if JSValIsDouble(vp) then
+         Result := trunc(JSValToDouble(cx, vp))
 
+    end;
     tkFloat:
       if JSValIsNumber(vp) then
         Result := JSValToDouble(cx, vp)
