@@ -761,15 +761,13 @@ begin
   methodName := GetParamName(cx, argv[-2]);
   Delete(methodName, 1, Length('function '));
   Delete(methodName, pos('(', methodName), Length(methodName));
-  // FMethodNamesMap.
+
   eng := TJSClass.JSEngine(cx);
   if eng.FMethodNamesMap.TryGetValue(methodName, method) then
   begin
     ctx := method.ctx;
     RttiType := method.RttiType;
-    // RttiType.GetMethod(methodName);
-    // method.method.Invoke(Method.Class, )
-    // Ctx.Invoke(
+    
     m := method.method;
     params := m.GetParameters;
 
@@ -2037,11 +2035,25 @@ var
   eng: TJSEngine;
   JSClassName: PAnsiChar;
   params: TArray<TRttiParameter>;
+  func: PJSFunction;
+
 begin
 {$POINTERMATH ON}
-  methodName := GetParamName(cx, argv[-2]);
-  Delete(methodName, 1, Length('function '));
-  Delete(methodName, pos('(', methodName), Length(methodName));
+
+  // The function object is in argv[-2].
+  // Use JS_ValueToFunction on it to get the JSFunction* and then JS_GetFunctionName to get its name.
+
+  func := JS_ValueToFunction(cx, argv[-2]);
+  if func <> nil then
+  begin
+     methodName := JS_GetFunctionName(func);
+  end
+  else begin
+    methodName := GetParamName(cx, argv[-2]);
+    Delete(methodName, 1, Length('function '));
+    Delete(methodName, pos('(', methodName), Length(methodName));
+  end;
+
   Result := js_true;
 
   p := JS_GetPrivate(cx, jsobj);
@@ -3090,7 +3102,7 @@ begin
     AP: "NotApproved"
     }
   *)
-  if (argc > 0) and (JSValIsObject(argv^) and ((JS_TypeOfValue(cx, argv^) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(argv^)).Name = 'Object')) then
+  if (argc > 0) and (JSValIsObject(argv^) and ((JS_TypeOfValue(cx, argv^) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(argv^)) <> nil) and (JS_GetClass(JSValToObject(argv^)).Name = 'Object')) then
   begin
 
     pObj := JSValToObject(argv^);
