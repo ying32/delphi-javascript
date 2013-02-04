@@ -3066,6 +3066,9 @@ var
   param: TRttiParameter;
   vp: jsval;
   nativeParams: TJSNativeCallParams;
+  field: TRttiField;
+  P: Pointer;
+  rec: TRttiRecordType ;
 
   function getDefaultValue(t: PTypeInfo): TValue;
   var
@@ -3115,10 +3118,22 @@ begin
     for i := 0 to High(params) do
     begin
       param := params[i];
-      if JS_GetProperty(cx, pObj, PAnsiChar(AnsiString(param.Name)), @vp) = 1 then
+      if Param.ParamType.Handle.Kind = tkRecord then
+      begin
+        TValue.Make(nil, Param.ParamType.Handle, Result[i]);
+        for field in param.ParamType.GetFields do
+        begin
+           if (JS_GetProperty(cx, pObj, PAnsiChar(AnsiString(field.Name)), @vp) = 1) and (not JSValIsVoid(vp)) then
+           begin
+               Field.SetValue(Result[i].GetReferenceToRawData, JSValToTValue(cx, field.FieldType.Handle, vp));
+           end;
+        end;
+      end;
+
+      {if JS_GetProperty(cx, pObj, PAnsiChar(AnsiString(param.Name)), @vp) = 1 then
       begin
         Result[i] := JSValToTValue(cx, param.ParamType.Handle, vp);
-      end;
+      end;}
     end;
 
   end
