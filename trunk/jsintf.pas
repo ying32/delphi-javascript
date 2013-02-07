@@ -166,7 +166,7 @@ type
     destructor Destroy; override;
 
     class function TValueToJSVal(cx: PJSContext; Value: TValue; isDateTime: boolean = false): jsval; overload;
-    class function JSValToTValue(cx: PJSContext; t: PTypeInfo; vp: jsval): TValue; overload;
+    class function JSValToTValue(cx: PJSContext; t: PTypeInfo; vp: jsval; RttiType: TRttiType): TValue; overload;
     class function JSArgsToTValues(params: TArray<TRttiParameter>; cx: PJSContext; jsobj: PJSObject; argc: uintN;
       argv: pjsval): TArray<TValue>; overload;
 
@@ -2554,7 +2554,7 @@ begin
     end
     else
     begin
-      v := JSValToTValue(cx, prop.PropertyType.Handle, vp^);
+      v := JSValToTValue(cx, prop.PropertyType.Handle, vp^, prop.PropertyType);
       prop.SetValue(Obj.FNativeObj, v);
     end;
   end;
@@ -2562,7 +2562,7 @@ begin
   Result := js_true;
 end;
 
-class function TJSClass.JSValToTValue(cx: PJSContext; t: PTypeInfo; vp: jsval): TValue;
+class function TJSClass.JSValToTValue(cx: PJSContext; t: PTypeInfo; vp: jsval; RttiType: TRttiType): TValue;
 
 var
   jsobj, jsarr: PJSObject;
@@ -2583,6 +2583,13 @@ var
   B: Byte;
   p: Pointer;
   Obj: TJSClass;
+  field: TRttiField;
+  pObj: PJSObject;
+  vvp: jsval;
+  ClassInstance: TRttiInstanceType;
+  constructorMethod: TRttiMethod;
+  prop: TRttiProperty;
+
 begin
   eng := TJSClass.JSEngine(cx);
   Result := TValue.Empty;
@@ -2640,7 +2647,21 @@ begin
 
     tkClass:
       begin
-        if (JSValIsObject(vp)) then
+        if (JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) then
+        begin
+            pObj := JSValToObject(vp);
+            ClassInstance := RttiType.AsInstance;
+            constructorMethod := RttiType.GetMethod('Create'); // Default constructors only
+            Result := constructorMethod.Invoke(ClassInstance.MetaclassType, []);
+            for prop in RttiType.GetProperties do
+            begin
+               if (JS_GetProperty(cx, pObj, PAnsiChar(AnsiString(prop.Name)), @vvp) = 1) and (not JSValIsVoid(vvp)) then
+               begin
+                   prop.SetValue(Result.asObject, JSValToTValue(cx, prop.PropertyType.Handle, vvp, prop.PropertyType));
+               end;
+            end;
+        end
+        else if (JSValIsObject(vp)) then
         begin
           jsobj := JSValToObject(vp);
           p := JS_GetPrivate(cx, jsobj);
@@ -2668,7 +2689,7 @@ begin
               begin
                 if not(JSValIsNull(vp) or JSValIsVoid(vp)) then
                 begin
-                  Values[i] := JSValToTValue(cx, typeData.eltype2^, vp);
+                  Values[i] := JSValToTValue(cx, typeData.eltype2^, vp, RttiType);
                 end;
               end;
             end;
@@ -2682,6 +2703,30 @@ begin
         if t = TypeInfo(TValue) then
         begin
           // result := TValueToJSVal(cx, Value.AsType<TValue>);
+        end
+        else begin
+
+  (*
+    // Check if this is a registered object or javascript parameters  object
+    var annot = this.addAnnot({
+    page: 0,
+    type: "Stamp",
+    }
+  *)
+         if (JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) then
+         begin
+
+            pObj := JSValToObject(vp);
+            TValue.Make(nil, RttiType.Handle, Result);
+            for field in RttiType.GetFields do
+            begin
+               if (JS_GetProperty(cx, pObj, PAnsiChar(AnsiString(field.Name)), @vvp) = 1) and (not JSValIsVoid(vvp)) then
+               begin
+                   Field.SetValue(Result.GetReferenceToRawData, JSValToTValue(cx, field.FieldType.Handle, vvp, field.FieldType));
+               end;
+            end;
+         end;
+
         end;
 
       end;
@@ -3110,67 +3155,34 @@ begin
     AP: "NotApproved"
     }
   *)
-  if (argc > 0) and (JSValIsObject(argv^) and ((JS_TypeOfValue(cx, argv^) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(argv^)) <> nil) and (JS_GetClass(JSValToObject(argv^)).Name = 'Object')) then
+
+  for i := 0 to High(params) do
   begin
 
-    pObj := JSValToObject(argv^);
+    param := params[i];
 
-    for i := 0 to High(params) do
+    if param.ParamType.Handle = TypeInfo(TJSNativeCallParams) then
     begin
-      param := params[i];
-      if Param.ParamType.Handle.Kind = tkRecord then
-      begin
-        TValue.Make(nil, Param.ParamType.Handle, Result[i]);
-        for field in param.ParamType.GetFields do
-        begin
-           if (JS_GetProperty(cx, pObj, PAnsiChar(AnsiString(field.Name)), @vp) = 1) and (not JSValIsVoid(vp)) then
-           begin
-               Field.SetValue(Result[i].GetReferenceToRawData, JSValToTValue(cx, field.FieldType.Handle, vp));
-           end;
-        end;
-      end;
-
-      {if JS_GetProperty(cx, pObj, PAnsiChar(AnsiString(param.Name)), @vp) = 1 then
-      begin
-        Result[i] := JSValToTValue(cx, param.ParamType.Handle, vp);
-      end;}
-    end;
-
-  end
-  else
-  begin
-
-    for i := 0 to High(params) do
+      nativeParams.cx := cx;
+      nativeParams.jsobj := jsobj;
+      nativeParams.argc := argc;
+      nativeParams.argv := argv;
+      TValue.Make(@nativeParams, TypeInfo(TJSNativeCallParams), Result[i]);
+    end
+    else
     begin
-
-      param := params[i];
-
-      if param.ParamType.Handle = TypeInfo(TJSNativeCallParams) then
+      if (argc = 0) or (i > argc - 1) then
       begin
-        nativeParams.cx := cx;
-        nativeParams.jsobj := jsobj;
-        nativeParams.argc := argc;
-        nativeParams.argv := argv;
-        // nativeParams.rval := nil;//rval;
-
-        // Args[0] := TValue.From<TJSNativeCallParams>(nativeParams);
-        TValue.Make(@nativeParams, TypeInfo(TJSNativeCallParams), Result[i]);
+        Result[i] := getDefaultValue(param.ParamType.Handle);
       end
       else
       begin
-        if (argc = 0) or (i > argc - 1) then
-        begin
-          Result[i] := getDefaultValue(param.ParamType.Handle);
-        end
-        else
-        begin
-          Result[i] := JSValToTValue(cx, param.ParamType.Handle, argv[i]);
-        end;
+        Result[i] := JSValToTValue(cx, param.ParamType.Handle, argv[i], param.ParamType);
       end;
-
     end;
 
   end;
+
 {$POINTERMATH OFF}
 end;
 
