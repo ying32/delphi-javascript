@@ -776,16 +776,17 @@ begin
       methodResult := m.Invoke(method.method_class, args);
       if methodResult.Kind <> tkUnknown then
         rval^ := TJSClass.TValueToJSVal(cx, methodResult);
+      Result := js_true;
 
     except
       on e: Exception do
       begin
         Result := JS_FALSE;
-        JS_ReportError(cx, PAnsiChar(AnsiString('Exception: ' + e.message)), nil);
+        //JS_SetPendingException(cx, StringToJSVal(cx, e.Message));
+        JS_ReportError(cx, PAnsiChar(AnsiString(e.message)), nil);
       end
     end;
     // Break since inherited/virtual methods will be called
-    Result := js_true;
   end;
 {$POINTERMATH OFF}
 end;
@@ -2085,7 +2086,8 @@ begin
       on e: Exception do
       begin
         Result := JS_FALSE;
-        JS_ReportError(cx, PAnsiChar(AnsiString('Exception: ' + e.message)), nil);
+//        JS_SetPendingException(cx, StringToJSVal(cx, e.Message));
+        JS_ReportError(cx, PAnsiChar(AnsiString(e.message)), nil);
       end
     end;
     // Break since inherited/virtual methods will be called
