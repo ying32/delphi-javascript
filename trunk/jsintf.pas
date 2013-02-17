@@ -2802,6 +2802,10 @@ var
   argv: array[0..10] of jsval;
   oDate: PJSObject;
 
+  ctx: TRttiContext;
+  RttiType: TRttiType;
+  field: TRttiField;
+
 begin
   Result := JSVAL_NULL;
 
@@ -2913,14 +2917,20 @@ begin
       end;
     tkRecord:
       begin
-        if Value.IsType(TypeInfo(TValue)) then
+        //eng := TJSClass.JSEngine(cx);
+        ctx := TRttiContext.Create;
+        RttiType := ctx.GetType(Value.TypeInfo);
+        jsobj := JS_NewObject(cx, NIL, nil, nil);
+
+        for field in RttiType.GetFields do
         begin
-          Result := TValueToJSVal(cx, Value.AsType<TValue>);
-          { end
-            else if Value.IsType(TypeInfo(TJSReturnValue)) then
-            begin
-            Result := Value.AsType<TJSReturnValue>.Value; }
+           v := Field.GetValue(Value.GetReferenceToRawData);
+           val := TValueToJSVal(cx, v, false);
+           JS_SetProperty(cx, jsObj, PAnsiChar(AnsiString(field.Name)), @val);
         end;
+
+        Result := JSOBjectToJSVal(jsobj);
+        ctx.Free;
       end;
   end;
 
