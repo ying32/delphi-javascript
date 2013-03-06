@@ -518,9 +518,7 @@ begin
 
   // Register script source
   if FDebugging then
-  begin
-    FDebuggerScripts.AddOrSetValue(name, Code);
-  end;
+     FDebuggerScripts.AddOrSetValue(name, Code);
 
   Result := JS_CompileUCScript(fcx, fglobal, PWideChar(Code), Length(Code), PAnsiChar(Name), 0);
 end;
@@ -1224,9 +1222,7 @@ begin
     scriptFileName := generateScriptName;
 
   if FEngine.FDebugging then
-  begin
-    FEngine.FDebuggerScripts.AddOrSetValue(scriptFileName, Code);
-  end;
+     FEngine.FDebuggerScripts.AddOrSetValue(scriptFileName, Code);
 
   Result := JS_EvaluateUCScript(FEngine.Context, Fjsobj, PWideChar(Code), Length(Code), PAnsiChar(scriptFileName), 0,
     @rval) = 1;
