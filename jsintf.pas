@@ -757,9 +757,6 @@ end;
 
 class function TJSEngine.JSMethodCall(cx: PJSContext; jsobj: PJSObject; argc: uintN; argv, rval: pjsval): JSBool;
 var
-  ii: integer;
-  dd: double;
-  ll: LongWord;
   methodName: string;
   eng: TJSEngine;
   method: TJSMethod;
@@ -768,8 +765,8 @@ var
   m: TRttiMethod;
   params: TArray<TRttiParameter>;
   args: TArray<TValue>;
-  methodResult: TValue;
-
+  v, methodResult: TValue;
+  ppp: pointer;
 begin
 {$POINTERMATH ON}
   Result := JS_FALSE;
@@ -782,21 +779,17 @@ begin
   begin
     ctx := method.ctx;
     RttiType := method.RttiType;
-    
+
     m := method.method;
     params := m.GetParameters;
 
     try
       args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
       methodResult := m.Invoke(method.method_class, args);
-      //methodResult := 99999;
       if methodResult.Kind <> tkUnknown then
         rval^ := TJSClass.TValueToJSVal(cx, methodResult);
-      //methodName := JS_GetImplementationVersion;
-      //ii := JSValToInt(rval^);
-      //dd := JSValToDouble(cx, rval^);
-      Result := js_true;
 
+      Result := js_true;
     except
       on e: Exception do
       begin
@@ -2715,6 +2708,15 @@ begin
          Result := trunc(JSValToDouble(cx, vp))
 
     end;
+
+    tkPointer:
+    begin
+       if JSValIsDouble(vp) then
+       begin
+          Result := TValue.From<pointer>( Pointer(NativeUINT(trunc(JSValToDouble(cx, vp)))));
+       end;
+    end;
+
     tkFloat:
       if JSValIsNumber(vp) then
         Result := JSValToDouble(cx, vp)
@@ -2786,7 +2788,18 @@ begin
       begin
         if t = TypeInfo(TValue) then
         begin
-          // result := TValueToJSVal(cx, Value.AsType<TValue>);
+           if JSValIsString(vp) then
+              result := JSValToTValue(cx, TypeInfo(string), vp, nil)
+           else if JSValIsDouble(vp) then
+              result := JSValToTValue(cx, TypeInfo(double), vp, nil)
+           else if JSValIsInt(vp) then
+              result := JSValToTValue(cx, TypeInfo(integer), vp, nil)
+           else if JSValIsBoolean(vp) then
+              result := JSValToTValue(cx, TypeInfo(boolean), vp, nil)
+           //else if JSValIsObject(vp) then
+           //   result := JSValToTValue(cx, TypeInfo(TObject), vp, nil)
+           else if JSValIsNull(vp) then
+              result := TValue.Empty
         end
         else begin
 
@@ -2887,6 +2900,7 @@ var
   ctx: TRttiContext;
   RttiType: TRttiType;
   field: TRttiField;
+  p: pointer;
 
 begin
   Result := JSVAL_NULL;
@@ -2923,6 +2937,11 @@ begin
         Result := IntToJSVal(Value.AsOrdinal);
       end;
 
+    tkPointer:
+    begin
+      Result := DoubleToJSVal(cx, NativeUINT(Value.AsType<pointer>));
+//      Result := DoubleToJSVal(cx, Value.asInt64);
+    end;
     tkInt64:
     begin
       if IntFitsInJSVal(Value.asInt64) then
