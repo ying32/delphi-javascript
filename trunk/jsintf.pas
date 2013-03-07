@@ -3248,7 +3248,8 @@ var
   begin
     case t^.Kind of
       tkEnumeration:
-        Result := false;
+        TValue.Make(nil, t, Result);
+      //  Result := 0;
       tkFloat:
         Result := 0.0;
       tkInt64, tkInteger:
