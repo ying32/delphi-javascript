@@ -390,8 +390,10 @@ JSOP_LIMIT
   JSInt64 = Int64;
   JSFloat32 = Single;
   JSFloat64 = Double;
+
   JSWord = NativeInt;
   JSUWord = NativeUInt;
+
   JSBool = JSIntn;
   JSPackedBool = JSUint8;
   JSSize = size_t;
@@ -993,15 +995,18 @@ function JS_UnlockGCThing(cx: PJSContext; thing: Pointer): JSBool; cdecl; extern
 function JS_UnlockGCThingRT(rt: PJSRuntime; thing: Pointer): JSBool; cdecl; external libName ;
 function JS_ValueToBoolean(cx: PJSContext; v: jsval; bp: PJSBool): JSBool; cdecl; external libName ;
 function JS_ValueToConstructor(cx: PJSContext; v: jsval): PJSFunction; cdecl; external libName ;
-function JS_ValueToECMAInt32(cx: PJSContext; v: jsval; ip: pint32): JSBool; cdecl; external libName ;
-function JS_ValueToECMAUint32(cx: PJSContext; v: jsval; ip: puint32): JSBool; cdecl; external libName ;
 function JS_ValueToFunction(cx: PJSContext; v: jsval): PJSFunction; cdecl; external libName ;
 function JS_ValueToId(cx: PJSContext; v: jsval; idp: pjsid): JSBool; cdecl; external libName ;
+
+function JS_ValueToECMAInt32(cx: PJSContext; v: jsval; ip: pint32): JSBool; cdecl; external libName ;
+function JS_ValueToECMAUint32(cx: PJSContext; v: jsval; ip: puint32): JSBool; cdecl; external libName ;
+
 function JS_ValueToInt32(cx: PJSContext; v: jsval; ip: pint32): JSBool; cdecl; external libName ;
+function JS_ValueToUint16(cx: PJSContext; v: jsval; ip: puint16): JSBool; cdecl; external libName ;
+
 function JS_ValueToNumber(cx: PJSContext; v: jsval; dp: pjsdouble): JSBool; cdecl; external libName ;
 function JS_ValueToObject(cx: PJSContext; v: jsval; var objp: PJSObject): JSBool; cdecl; external libName ;
 function JS_ValueToString(cx: PJSContext; v: jsval): PJSString; cdecl; external libName ;
-function JS_ValueToUint16(cx: PJSContext; v: jsval; ip: puint16): JSBool; cdecl; external libName ;
 function JS_VersionToString(version: JSVersion): PAnsiChar; cdecl; external libName ;
 function JS_XDRBytes(xdr: PJSXDRState; bytes: PAnsiChar; len: uint32): JSBool; cdecl; external libName ;
 function JS_XDRCString(xdr: PJSXDRState; var s: PAnsiChar): JSBool; cdecl; external libName ;
@@ -1199,14 +1204,18 @@ function StringToJSString(cx: PJSContext; const str: UnicodeString): PJSString;
 function StringToJSVal(cx: PJSContext; str: UnicodeString): jsval;
 function JSObjectToJSVal(obj: PJSObject): jsval;
 function DoubleToJSVal(cx: PJSContext; dbl: Double): jsval;
-function IntToJSVal(val: Integer): jsval;
+function IntToJSVal(val: Integer): jsval; overload;
+function IntFitsInJSVal(i: integer): boolean;
 function BoolToJSVal(val: Boolean): jsval;
+
 function JSValToDouble(cx: PJSContext; val: jsval): Double;
 function JSValToObject(v: jsval): PJSObject;
 function JSValToInt(val: jsval): Integer;
 function JSValToJSString(val: jsval): PJSString;
 function JSValToBoolean(val: jsval): Boolean;
 function JSValToString(cx: PJSContext; val: jsval): UnicodeString;
+function JSValMinInt: integer;
+function JSValMaxInt: integer;
 
 (* Validation routines *)
 function JSValIsObject(v: jsval): Boolean;
@@ -1267,11 +1276,6 @@ begin
   JS_NewNumberValue(cx, dbl, @Result);
 end;
 
-function IntToJSVal(val: Integer): jsval;
-begin
-  Result := (jsval(val) shl 1) or JSVAL_INT;
-end;
-
 function BoolToJSVal(val: Boolean): jsval;
 var
   tmp: Integer;
@@ -1281,6 +1285,76 @@ begin
   else
     tmp := JSVAL_FALSE;
   Result := (tmp shl JSVAL_TAGBITS) or JSVAL_BOOLEAN;
+end;
+
+function IntToJSVal(val: Integer): jsval;
+begin
+  Result := (jsval(val) shl 1) or JSVAL_INT;
+end;
+
+{ SHR_INT32 }
+function  shr_int32(i ,shift : integer ) : integer;
+{$ifdef CPU64}
+asm
+      // Source in ecx
+      // Shift in dl
+      mov eax,ecx
+      mov rcx,rdx
+      sar eax,cl
+{$else}
+begin
+ asm
+  mov eax ,dword ptr [i ]
+  mov ecx ,dword ptr [shift ]
+  sar eax ,cl
+  mov dword ptr [result ] ,eax
+
+ end;
+{$endif}
+end;
+(*
+#define JSVAL_INT_BITS          31
+#define JSVAL_INT_POW2(n)       ((jsval)1 << (n))
+#define JSVAL_INT_MIN           ((jsval)1 - JSVAL_INT_POW2(30))
+#define JSVAL_INT_MAX           (JSVAL_INT_POW2(30) - 1)
+#define INT_FITS_IN_JSVAL(i)    ((jsuint)((i)+JSVAL_INT_MAX) <= 2*JSVAL_INT_MAX)
+#define JSVAL_TO_INT(v)         ((jsint)(v) >> 1)
+#define INT_TO_JSVAL(i)         (((jsval)(i) << 1) | JSVAL_INT)
+*)
+function JSValIntPOW2(n: integer): integer;
+begin
+  Result := Integer(1) shl n;
+
+end;
+
+function JSValMinInt: integer;
+begin
+  result := (1 - JSValIntPOW2(30));
+end;
+
+function JSValMaxInt: integer;
+begin
+  result := (JSValIntPOW2(30) - 1);
+end;
+
+function IntFitsInJSVal(i: integer): boolean;
+begin
+  result := ((i)+JSValMaxInt) <= 2*JSValMinInt
+
+end;
+
+function JSValToInt(val: jsval): Integer;
+var
+  b: boolean;
+begin
+  //((jsuint)((i)+JSVAL_INT_MAX) <= 2*JSVAL_INT_MAX)
+  //b := IntFitsInJSVal(1966669824);
+  Result := shr_int32(val, 1);
+  //Result := val shr 1;
+  //shr doesn't handle signed types in the same way as C. If the source was
+  //negative then merge in the missing 1 in position 31.
+  //if val < 0 then
+  //  Result := Result or $80000000;
 end;
 
 function JSValToObject(v: jsval): PJSObject;
@@ -1303,15 +1377,6 @@ end;
 function JSValToString(cx: PJSContext; val: jsval): UnicodeString;
 begin
    result := JSStringToString(JS_ValueToString(cx, val));
-end;
-
-function JSValToInt(val: jsval): Integer;
-begin
-  Result := val shr 1;
-  //shr doesn't handle signed types in the same way as C. If the source was
-  //negative then merge in the missing 1 in position 31.
-  if val < 0 then
-    Result := Result or $80000000;
 end;
 
 function JSValToBoolean(val: jsval): Boolean;

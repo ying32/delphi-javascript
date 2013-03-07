@@ -239,6 +239,10 @@ type
     procedure registerClasses(AClass: array of TClass; AClassFlags: TJSClassFlagAttributes = [cfaInheritedMethods, cfaInheritedProperties]);
     procedure registerGlobalFunctions(AClass: TClass);
 
+    // For TRttiSetType, TRttiOrdinalType
+    function Define(val: TRttiType): boolean; overload;
+    function Define(ATypeInfo: Pointer): boolean;overload;
+
     function Declare(val: Integer; const Name: String): boolean; overload;
     function Declare(val: Double; const Name: String): boolean; overload;
     function Declare(const val: String; const Name: String): boolean; overload;
@@ -572,6 +576,15 @@ begin
   Result := Global.setProperty(name, val);
 end;
 
+function TJSEngine.Define(ATypeInfo: Pointer): boolean;
+var
+  ctx: TRttiContext;
+begin
+  ctx:= TRttiContext.Create;
+  Result := Define(ctx.GetType(ATypeInfo));
+  ctx.Free;
+end;
+
 destructor TJSEngine.Destroy;
 var
   p: TJSClassProto;
@@ -744,6 +757,9 @@ end;
 
 class function TJSEngine.JSMethodCall(cx: PJSContext; jsobj: PJSObject; argc: uintN; argv, rval: pjsval): JSBool;
 var
+  ii: integer;
+  dd: double;
+  ll: LongWord;
   methodName: string;
   eng: TJSEngine;
   method: TJSMethod;
@@ -753,6 +769,7 @@ var
   params: TArray<TRttiParameter>;
   args: TArray<TValue>;
   methodResult: TValue;
+
 begin
 {$POINTERMATH ON}
   Result := JS_FALSE;
@@ -772,8 +789,12 @@ begin
     try
       args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
       methodResult := m.Invoke(method.method_class, args);
+      //methodResult := 99999;
       if methodResult.Kind <> tkUnknown then
         rval^ := TJSClass.TValueToJSVal(cx, methodResult);
+      //methodName := JS_GetImplementationVersion;
+      //ii := JSValToInt(rval^);
+      //dd := JSValToDouble(cx, rval^);
       Result := js_true;
 
     except
@@ -960,6 +981,71 @@ begin
   else
     JS_SetOptions(fcx, JS_GetOptions(fcx) and not JSOPTION_STRICT);
 
+end;
+
+function TJSEngine.Define(val: TRttiType): boolean;
+var
+  i: Integer;
+  st: TRttiSetType;
+  ot: TRttiOrdinalType;
+  ename: string;
+  Consts: array of JSConstDoubleSpec;
+  //proc: TIntToIdent;
+
+  procedure defineEnum(ename: string; v: integer);
+  begin
+    Global.setProperty(ename, v);
+
+    {SetLength(Consts, Length(Consts) + 1);
+    Consts[high(Consts)].dval := v;
+    Consts[high(Consts)].Name := strdup(ename);
+    Consts[high(Consts)].flags := JSPROP_ENUMERATE or JSPROP_READONLY or JSPROP_PERMANENT;
+    }
+  end;
+
+begin
+
+  if val = nil then exit(false);
+
+  Result := False;
+  Consts := nil;
+
+  if val.Handle^.Kind = tkEnumeration then
+  begin
+    Result := True;
+    ot := val.AsOrdinal;
+    for i := ot.MinValue to ot.MaxValue do
+    begin
+      defineEnum( GetEnumName(val.Handle, i), i);
+    end;
+  end
+  else if val.IsSet then
+  begin
+    Result := True;
+    st := val.AsSet;
+    val := st.ElementType;
+    if val.IsOrdinal then
+    begin
+      ot := val.AsOrdinal;
+      for i := ot.MinValue to ot.MaxValue do
+      begin
+        defineEnum(GetEnumName(val.Handle, i), 1 shl i);
+      end;
+    end;
+
+  end
+  else if val.Handle^.Kind = tkInteger then
+  begin
+    // proc := FindIntToIdent(val.handle) ;
+  end;
+
+  if Length(Consts) > 0 then
+  begin
+    //SetLength(Consts, Length(Consts) + 1);
+    //FillChar(Consts[Length(Consts) - 1], SizeOf(JSConstDoubleSpec), 0);
+    //
+    //JS_DefineConstDoubles(Context, Global.JSObject, @Consts[0]);
+  end;
 end;
 
 { TJSBase }
@@ -1688,7 +1774,7 @@ var
   begin
     // FindIntToIdent(pt.handle);
     if pt = nil then exit;
-    
+
     if pt.Handle^.Kind = tkEnumeration then
     begin
       ot := pt.AsOrdinal;
@@ -2837,8 +2923,21 @@ begin
         Result := IntToJSVal(Value.AsOrdinal);
       end;
 
-    tkInt64, tkInteger:
-      Result := IntToJSVal(Value.AsInt64);
+    tkInt64:
+    begin
+      if IntFitsInJSVal(Value.asInt64) then
+         Result := IntToJSVal(Value.asInt64)
+      else
+         Result := DoubleToJSVal(cx, Value.asInt64);
+    end;
+
+    tkInteger:
+    begin
+      if IntFitsInJSVal(Value.AsInteger) then
+         Result := IntToJSVal(Value.AsInteger)
+      else
+         Result := DoubleToJSVal(cx, Value.AsInteger);
+    end;
     tkFloat:
       begin
          //Result := DoubleToJSVal(cx, DateTimeToUnix(Value.AsExtended)*1000); // default fallback to float
