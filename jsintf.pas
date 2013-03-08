@@ -180,6 +180,7 @@ type
     procedure FreeJSObject(Engine: TJSEngine);
     function JSEngine: TJSEngine; overload;
     property JSObject: PJSObject read Fjsobj;
+    property nativeObj: TObject read FNativeObj;
 
   end;
 
@@ -246,6 +247,7 @@ type
     function Declare(val: Integer; const Name: String): boolean; overload;
     function Declare(val: Double; const Name: String): boolean; overload;
     function Declare(const val: String; const Name: String): boolean; overload;
+    function Declare(const val: PWideChar; const Name: String): boolean; overload;
     function Declare(val: boolean; const Name: String): boolean; overload;
 
     function EvaluateFile(const FileName: String; Scope: TJSObject = NIL): boolean; overload;
@@ -350,7 +352,7 @@ type
     function Declare(val: Integer; const Name: String): boolean; overload;
     function Declare(const val: String; const Name: String): boolean; overload;
     function Declare(val: boolean; const Name: String): boolean; overload;
-    function enumerate: TArray<string>;
+    class function enumerate(cx: PJSContext; obj: PJSObject): TArray<string>;
     function Evaluate(const Code: String; scriptFileName: AnsiString = ''): boolean; overload;
     function Evaluate(const Code: String; var rval: jsval; scriptFileName: AnsiString = ''): boolean; overload;
     function Compile(const Code: String; scriptFileName: AnsiString = ''): PJSScript;
@@ -574,6 +576,12 @@ end;
 function TJSEngine.Declare(val: boolean; const Name: String): boolean;
 begin
   Result := Global.setProperty(name, val);
+end;
+
+function TJSEngine.Declare(const val: PWideChar; const Name: String): boolean;
+begin
+  Result := Global.setProperty(name, val);
+
 end;
 
 function TJSEngine.Define(ATypeInfo: Pointer): boolean;
@@ -1272,22 +1280,22 @@ begin
   inherited;
 end;
 
-function TJSObject.enumerate: TArray<string>;
+class function TJSObject.enumerate(cx: PJSContext; obj: PJSObject): TArray<string>;
 var
   list: PJSIdArray;
   curid: pjsid;
   val: jsval;
   i: Integer;
 begin
-  CheckConnection;
-  list := JS_Enumerate(FEngine.Context, Fjsobj);
+//  CheckConnection;
+  list := JS_Enumerate(cx, obj);
   curid := @list^.vector;
 
   SetLength(Result, list^.Length);
   for i := 0 to list^.Length - 1 do
   begin
-    JS_IdToValue(FEngine.Context, curid^, @val);
-    Result[i] := String(JS_GetStringChars(JS_ValueToString(FEngine.Context, val)));
+    JS_IdToValue(cx, curid^, @val);
+    Result[i] := String(JS_GetStringChars(JS_ValueToString(cx, val)));
     Inc(curid);
   end;
 end;
@@ -2676,7 +2684,7 @@ begin
         Result := JSValToBoolean(vp)
       else
       begin
-        Result := Result.FromOrdinal(t, JSValToInt(vp));
+        Result := TValue.FromOrdinal(t, JSValToInt(vp));
       end;
     tkSet:
       begin
@@ -2711,7 +2719,23 @@ begin
 
     tkPointer:
     begin
-       if JSValIsDouble(vp) then
+       if JSValIsNull(vp) then
+       begin
+          Result := TValue.From<pointer>( nil);
+       end
+       else if JSValIsObject(vp) then
+       begin
+          jsobj := JSValToObject(vp);
+          p := JS_GetPrivate(cx, jsobj);
+          if TObject(p) is TJSClass then
+          begin
+            Obj := TJSClass(p);
+            //Result := Pointer(Obj.FNativeObj);
+            Result := TValue.From<pointer>(Pointer(Obj.FNativeObj));
+          end;
+          //Result := TValue.From<pointer>( nil);
+       end
+       else if JSValIsDouble(vp) then
        begin
           Result := TValue.From<pointer>( Pointer(NativeUINT(trunc(JSValToDouble(cx, vp)))));
        end;
@@ -2727,7 +2751,11 @@ begin
         Result := dDate;
       end;
 
-    tkLString, tkWString, tkUString:
+    tkLString:
+      if not JSValIsVoid(vp) then
+         Result := TValue.From<AnsiString>(AnsiString(JSStringToString(JS_ValueToString(cx, vp))));
+
+    tkWString, tkString, tkUString:
       if not JSValIsVoid(vp) then
         Result := JSStringToString(JS_ValueToString(cx, vp));
 
@@ -3258,6 +3286,7 @@ var
         Result := '';
       tkDynArray:
         Result := TValue.FromArray(t, []);
+      tkPointer,
       tkClass:
         Result := nil;
     end;
