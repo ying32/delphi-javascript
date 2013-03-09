@@ -1752,6 +1752,8 @@ var
   clctx: TRttiContext;
   clt: TRttiType;
 
+  DuplicateStrings: TStringList;
+
   procedure defineEnums(pt: TRttiType);
   var
     i: Integer;
@@ -1805,6 +1807,20 @@ var
     end;
   end;
 
+
+  function PropExist(const PropName:string; List:TArray<TRttiProperty>) : Boolean;
+  var
+   Prop: JSPropertySpec;
+  begin
+    result:=False;
+    for Prop in Fclass_props  do
+     if SameText(PropName, Prop.Name) then
+     begin
+       Result:=True;
+       break;
+     end;
+  end;
+
 begin
 
   Enums := TDictionary<string, Integer>.Create;
@@ -1823,6 +1839,8 @@ begin
 
   clName := FRttiType.Name;
   clFlags := AClassFlags;
+  DuplicateStrings:= TStringList.Create;
+  //DuplicateStrings.Sorted := true;
 
   for a in FRttiType.GetAttributes do
   begin
@@ -1894,6 +1912,7 @@ begin
 
   // Support only integer indexed properties
 {$IF CompilerVersion >= 23}
+   DuplicateStrings.Clear;
   for ip in FRttiType.GetIndexedProperties do
   begin
     if (ip.parent <> FRttiType) and (not(cfaInheritedProperties in clFlags)) then
@@ -1915,17 +1934,22 @@ begin
     if (ip.ReadMethod.GetParameters[0].ParamType.Handle <> TypeInfo(Integer)) then
       continue;
 
+    if DuplicateStrings.IndexOf(ip.name) <> -1 then
+       continue;
+    DuplicateStrings.Add(ip.name);
+
     SetLength(Fclass_indexedProps, Length(Fclass_indexedProps) + 1);
-    Fclass_indexedProps[high(Fclass_indexedProps)].flags := JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
+    Fclass_indexedProps[high(Fclass_indexedProps)].flags := JSPROP_SHARED or JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
     Fclass_indexedProps[high(Fclass_indexedProps)].Name := strdup(ip.Name);
     Fclass_indexedProps[high(Fclass_indexedProps)].getter := @TJSClass.JSIndexedPropRead;
-    Fclass_indexedProps[high(Fclass_indexedProps)].tinyid := High(Fclass_indexedProps) - 127;
+    Fclass_indexedProps[high(Fclass_indexedProps)].tinyid := 0;//High(Fclass_indexedProps) - 127;
 
   end;
 
 {$IFEND}
 
   //tinyid := -127;
+  DuplicateStrings.Clear;
   for f in FRttiType.GetFields do
   begin
 
@@ -1945,16 +1969,21 @@ begin
     if exclude or (f.Visibility < mvPublic) then
       continue;
 
+    if DuplicateStrings.IndexOf(f.name) <> -1 then
+       continue;
+    DuplicateStrings.Add(f.name);
     defineEnums(f.FieldType);
 
     SetLength(Fclass_fields, Length(Fclass_fields) + 1);
-    Fclass_fields[high(Fclass_fields)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY;
+    Fclass_fields[high(Fclass_fields)].flags := JSPROP_SHARED or JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_READONLY;
     Fclass_fields[high(Fclass_fields)].Name := strdup(f.Name);
     Fclass_fields[high(Fclass_fields)].getter := @TJSClass.JSFieldRead;
-    Fclass_fields[high(Fclass_fields)].tinyid := High(Fclass_fields) - 127;
+    Fclass_fields[high(Fclass_fields)].tinyid := 0;//High(Fclass_fields) - 127;
 
   end;
 
+  DuplicateStrings.Clear;
+  //  TArray<TRttiProperty>
   for p in FRttiType.GetProperties do
   begin
 
@@ -1976,11 +2005,18 @@ begin
     if p.Name = 'WindowState' then
        exclude := false;
 
+    //if PropExist(p.name, Properties) then
+    //   continue;
+
+    if DuplicateStrings.IndexOf(p.name) <> -1 then
+       continue;
+    DuplicateStrings.Add(p.name);
+
     defineEnums(p.PropertyType);
 
     SetLength(Fclass_props, Length(Fclass_props) + 1);
-    Fclass_props[high(Fclass_props)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT;
-    Fclass_props[high(Fclass_props)].Name := strdup(p.Name);
+    Fclass_props[high(Fclass_props)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_SHARED{or JSPROP_INDEX};
+    Fclass_props[high(Fclass_props)].Name := strdup(p.Name);//PAnsiChar(High(Fclass_props));//strdup(p.Name);
     if p.IsReadable then
       Fclass_props[high(Fclass_props)].getter := @TJSClass.JSPropRead;
 
@@ -1989,7 +2025,7 @@ begin
     else
       Fclass_props[high(Fclass_props)].flags := Fclass_props[high(Fclass_props)].flags or JSPROP_READONLY;
 
-    Fclass_props[high(Fclass_props)].tinyid := High(Fclass_props) - 127;
+    Fclass_props[high(Fclass_props)].tinyid := 0;//High(Fclass_props) - 127;
 
   end;
 
@@ -2024,18 +2060,24 @@ end;
 class procedure TJSClassProto.DefineProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
 var
   i: Integer;
+  ok: JSBool;
 begin
       for i := 0 to High(Props) do
       begin
          if Props[i].name = NIL then continue;
 
-         JS_DefineProperty( cx,
+         ok := JS_DefineProperty( cx,
                             obj,
                             Props[i].name,
                             JSVAL_NULL,
                             Props[i].getter,
                             Props[i].setter,
                             Props[i].flags);
+
+         if ok = js_false then
+         begin
+             ok := js_true;
+         end;
 
 {
 JSBool JS_DefineProperty(JSContext *cx, JSObject *obj,
@@ -2093,13 +2135,13 @@ begin
       nil, nil, nil, nil);
     if FJSClassProto <> nil then
     begin
-      //JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_props[0]);
       JS_DefineFunctions(AEngine.Context, FJSClassProto, @Fclass_methods[0]);
       JS_DefineConstDoubles(AEngine.Context, AEngine.Global.JSObject, @FConsts[0]);
 
       TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_fields);
-      TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_props);
       TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_indexedProps);
+      TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_props);
+      //JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_props[0]);
     end;
   end;
 
@@ -2489,7 +2531,11 @@ begin
   Obj := TJSClass(p);
   t := Obj.FClassProto.FRttiType;
 
-  propName := JSValToString(cx, id);
+//  propName := JSValToString(cx, id);
+  if JSValIsString(id) then
+     propName := JSValToString(cx, id)
+  else
+     propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
 //  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
   prop := t.getProperty(propName);
   if prop <> nil then
@@ -2577,8 +2623,10 @@ begin
   Obj := TJSClass(p);
 
   t := Obj.FClassProto.FRttiType;
-  propName := JSValToString(cx, id);
-//  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
+  if JSValIsString(id) then
+     propName := JSValToString(cx, id)
+  else
+     propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
   prop := t.getProperty(propName);
   if prop <> nil then
   begin
@@ -2738,6 +2786,14 @@ begin
        else if JSValIsDouble(vp) then
        begin
           Result := TValue.From<pointer>( Pointer(NativeUINT(trunc(JSValToDouble(cx, vp)))));
+       end
+       else if JSValIsString(vp) then
+       begin
+          if (t.Name = 'PWideChar') then
+             Result := TValue.From<PWideChar>( PWideChar(JSStringToString(JS_ValueToString(cx, vp))))
+          else if (t.Name = 'PAnsiChar') then
+             Result := TValue.From<PAnsiChar>( PAnsiChar(AnsiString(JSStringToString(JS_ValueToString(cx, vp)))))
+
        end;
     end;
 
@@ -2756,8 +2812,8 @@ begin
          Result := TValue.From<AnsiString>(AnsiString(JSStringToString(JS_ValueToString(cx, vp))));
 
     tkWString, tkString, tkUString:
-      if not JSValIsVoid(vp) then
-        Result := JSStringToString(JS_ValueToString(cx, vp));
+      if not (JSValIsVoid(vp) or JSValIsNull(vp)) then
+         Result := JSStringToString(JS_ValueToString(cx, vp));
 
     tkClass:
       begin
