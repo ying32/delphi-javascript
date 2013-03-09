@@ -579,8 +579,11 @@ begin
 end;
 
 function TJSEngine.Declare(const val: PWideChar; const Name: String): boolean;
+var
+  v: TValue;
 begin
-  Result := Global.setProperty(name, val);
+  v := TVAlue.From<PWideChar>(val);
+  Result := Global.setProperty(name, v);
 
 end;
 
@@ -3023,7 +3026,12 @@ begin
 
     tkPointer:
     begin
-      Result := DoubleToJSVal(cx, NativeUINT(Value.AsType<pointer>));
+      if Value.IsType<pointer> then
+         Result := DoubleToJSVal(cx, NativeUINT(Value.AsType<pointer>))
+      else if Value.IsType<PWideChar> then
+         Result := DoubleToJSVal(cx, NativeUINT(Value.AsType<PWideChar>))
+      else if Value.IsType<PAnsiChar> then
+         Result := DoubleToJSVal(cx, NativeUINT(Value.AsType<PAnsiChar>))
 //      Result := DoubleToJSVal(cx, Value.asInt64);
     end;
     tkInt64:
