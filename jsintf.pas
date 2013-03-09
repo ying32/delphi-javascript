@@ -77,14 +77,19 @@ type
   JSExcludeAttribute = class(TCustomAttribute)
   end;
 
+  JSGlobalScopeAttribute = class(TCustomAttribute)
+  end;
+
   TJSEventData = class
   protected
     fjsfuncobj: PJSObject;
     feventName: string;
+    fmethodName: string;
     fobj: TObject;
     fcx: PJSContext;
+  protected
   public
-    constructor Create(ajsfuncobj: PJSObject; aeventname: string; aobj: TObject; acx: PJSContext);
+    constructor Create(ajsfuncobj: PJSObject; aeventname,amethodname: string; aobj: TObject; acx: PJSContext);
   end;
 
   TJSPropRead = reference to function (cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
@@ -108,7 +113,6 @@ type
     FJSClassProto: PJSObject;
     FMethodNamesMap: TStringList;
     FClassFlags: TJSClassFlagAttributes;
-    FEventsCode: TObjectDictionary<string, TJSEventData>;
 
     procedure DefineJSClass(AClass: TClass; AClassFlags: TJSClassFlagAttributes = []);
     // Used from Engine.registerClass;
@@ -126,6 +130,7 @@ type
   TJSClass = class
   private
 
+    FEventsCode: TObjectDictionary<string, TJSEventData>;
     Fjsobj: PJSObject;
     FNativeObj: TObject;
     FJSObject: TJSObject;
@@ -181,6 +186,7 @@ type
     function JSEngine: TJSEngine; overload;
     property JSObject: PJSObject read Fjsobj;
     property nativeObj: TObject read FNativeObj;
+    property ClassProto: TJSClassProto read FClassProto;
 
   end;
 
@@ -1722,7 +1728,6 @@ begin
   Fclass_props := nil;
   FConsts := nil;
   FMethodNamesMap := TStringList.Create;
-  FEventsCode := TObjectDictionary<string, TJSEventData>.Create([doOwnsValues]);
 
   DefineJSClass(AClass, AClassFlags);
 
@@ -2117,7 +2122,6 @@ begin
 
   FMethodNamesMap.Free;
   Fctx.Free;
-  FEventsCode.Free;
   inherited;
 end;
 
@@ -2277,7 +2281,7 @@ var
   f_argv: jsval;
 begin
   eventData := TJSEventData(self);
-  f_argv := JSObjectToJSVal(TJSClass(eventData.fobj).{ FJSObject. } Fjsobj);
+  f_argv := JSObjectToJSVal(TJSClass(eventData.fobj).Fjsobj);
 
   if JS_CallFunctionValue(eventData.fcx, eventData.fjsfuncobj, JSObjectToJSVal(eventData.fjsfuncobj), 1, @f_argv,
     @f_rval) = js_true then
@@ -2608,15 +2612,16 @@ end;
 
 class function TJSClass.JSPropWrite(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
 var
-  propName: String;
+  methodName, propName: String;
   p: Pointer;
   Obj: TJSClass;
   t: TRttiType;
   prop: TRttiProperty;
   v: TValue;
   jsfuncobj: PJSObject;
-  NotifyMethod: TMethod;
+  Method: TMethod;
   eventData: TJSEventData;
+  func: PJSFunction;
 begin
 
   p := JS_GetPrivate(cx, jsobj);
@@ -2630,6 +2635,7 @@ begin
      propName := JSValToString(cx, id)
   else
      propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
+
   prop := t.getProperty(propName);
   if prop <> nil then
   begin
@@ -2640,48 +2646,54 @@ begin
       if (not JSValIsNull(vp^)) and JSValIsObject(vp^) then
       begin
         jsfuncobj := JSValToObject(vp^);
+
         if JS_ObjectIsFunction(cx, jsfuncobj) = js_true then
         begin
+          methodName := '';
+          func := JS_ValueToFunction(cx, vp^);
+          if func <> nil then
+             methodName := JS_GetFunctionName(func);
 
+          //new(Method);
           if prop.PropertyType.Handle = TypeInfo(TNotifyEvent) then
           begin
-            eventData := TJSEventData.Create(jsfuncobj, propName, Obj, cx);
-            NotifyMethod.Code := @TJSClass.JSNotifyEvent;
-            NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
-            SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
+            eventData := TJSEventData.Create(jsfuncobj, propName, methodName, obj , cx);
+            Method.Code := @TJSClass.JSNotifyEvent;
+            Method.data := Pointer(eventData); // Tricky  set method's self variable to eventdata
+            SetMethodProp(Obj.FNativeObj, propName, Method);
+            Obj.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TKeyEvent) then
           begin
-            eventData := TJSEventData.Create(jsfuncobj, propName, Obj, cx);
-            NotifyMethod.Code := @TJSClass.JSKeyEvent;
-            NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
-            SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
+            eventData := TJSEventData.Create(jsfuncobj, propName, methodName, Obj, cx);
+            Method.Code := @TJSClass.JSKeyEvent;
+            Method.data := eventData; // Tricky  set method's self variable to eventdata
+            SetMethodProp(Obj.FNativeObj, propName, Method);
+            Obj.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TKeyPressEvent) then
           begin
-            eventData := TJSEventData.Create(jsfuncobj, propName, Obj, cx);
-            NotifyMethod.Code := @TJSClass.JSKeyPressEvent;
-            NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
-            SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
+            eventData := TJSEventData.Create(jsfuncobj, propName, methodName, Obj, cx);
+            Method.Code := @TJSClass.JSKeyPressEvent;
+            Method.data := eventData; // Tricky  set method's self variable to eventdata
+            SetMethodProp(Obj.FNativeObj, propName, Method);
+            Obj.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TMouseEvent) then
           begin
-            eventData := TJSEventData.Create(jsfuncobj, propName, Obj, cx);
-            NotifyMethod.Code := @TJSClass.JSMouseDownUpEvent;
-            NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
-            SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
+            eventData := TJSEventData.Create(jsfuncobj, propName, methodName, Obj, cx);
+            Method.Code := @TJSClass.JSMouseDownUpEvent;
+            Method.data := eventData; // Tricky  set method's self variable to eventdata
+            SetMethodProp(Obj.FNativeObj, propName, Method);
+            Obj.FEventsCode.AddOrSetValue(PropName, eventData);
           end
           else if prop.PropertyType.Handle = TypeInfo(TMouseMoveEvent) then
           begin
-            eventData := TJSEventData.Create(jsfuncobj, propName, Obj, cx);
-            NotifyMethod.Code := @TJSClass.JSMouseMoveEvent;
-            NotifyMethod.data := eventData; // Tricky  set method's self variable to eventdata
-            SetMethodProp(Obj.FNativeObj, propName, NotifyMethod);
-            Obj.FClassProto.FEventsCode.AddOrSetValue(PropName, eventData);
+            eventData := TJSEventData.Create(jsfuncobj, propName, methodName, Obj, cx);
+            Method.Code := @TJSClass.JSMouseMoveEvent;
+            Method.data := eventData; // Tricky  set method's self variable to eventdata
+            SetMethodProp(Obj.FNativeObj, propName, Method);
+            Obj.FEventsCode.AddOrSetValue(PropName, eventData);
           end;
           //
         end;
@@ -3144,6 +3156,7 @@ end;
 
 constructor TJSClass.Create;
 begin
+  FEventsCode := TObjectDictionary<string, TJSEventData>.Create([doOwnsValues]);
 
 end;
 
@@ -3155,6 +3168,7 @@ begin
     FNativeObj.Free;
   if assigned(FJSObject) then
      FJSObject.Free;
+  FEventsCode.free;
   inherited;
 end;
 
@@ -3617,10 +3631,11 @@ end;
 
 { TJSEvent }
 
-constructor TJSEventData.Create(ajsfuncobj: PJSObject; aeventname: string; aobj: TObject; acx: PJSContext);
+constructor TJSEventData.Create(ajsfuncobj: PJSObject; aeventname, amethodname: string; aobj: TObject; acx: PJSContext);
 begin
   fjsfuncobj := ajsfuncobj;
   feventName := aeventname;
+  fmethodname := amethodname;
   fobj := aobj;
   fcx := acx;
 
@@ -3908,3 +3923,4 @@ end;
 *)
 
 end.
+
