@@ -4,7 +4,7 @@ interface
 uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI, types,
   Generics.Collections, SysUtils, Windows, Controls, syncObjs, JSDbgServer, forms, dialogs;
 
-const
+var
   global_class: JSClass = (name: 'global'; flags: JSCLASS_HAS_PRIVATE; addProperty: JS_PropertyStub;
     delProperty: JS_PropertyStub; getProperty: JS_PropertyStub; setProperty: JS_PropertyStub;
     enumerate: JS_EnumerateStub; resolve: JS_ResolveStub; convert: JS_ConvertStub; finalize: JS_FinalizeStub);
@@ -54,7 +54,10 @@ type
   end;
 
   // JS RTTI Attributes
-  TJSClassFlagAttributes = set of (cfaInheritedMethods, cfaInheritedProperties, cfaOwnObject, cfaGlobalObject);
+  TJSClassFlagAttributes = set of (cfaInheritedMethods,     // Publish inherited methods
+                                   cfaInheritedProperties,  // Publish inherited properties
+                                   cfaOwnObject,            // Free object on javascript destructor
+                                   cfaGlobalFields);        // Register Private fields as properties to global object
 
   JSClassFlagsAttribute = class(TCustomAttribute)
   private
@@ -137,6 +140,7 @@ type
 
     // class function PropWrite(Obj: TJSClass; cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
   protected
+    FGlobalFields: boolean;
     FClassProto: TJSClassProto;
     FJSEngine: TJSEngine;
 
@@ -550,6 +554,8 @@ begin
 
   fcx := JS_NewContext(frt, fstackSize);
   JS_SetRuntimePrivate(frt, self);
+
+  SetReservedSlots(global_class, 1);
   fglobal := JS_NewObject(fcx, @global_class, nil, nil);
   JS_SetErrorReporter(fcx, ErrorReporter);
 
@@ -1839,6 +1845,7 @@ begin
   FClass_fields := nil;
   FConsts := nil;
 
+
   Fctx := TRttiContext.Create;
   FRttiType := Fctx.GetType(AClass);
   // FRttiType := FRttiType;
@@ -1956,7 +1963,6 @@ begin
 
 {$IFEND}
 
-  //tinyid := -127;
   DuplicateStrings.Clear;
   for f in FRttiType.GetFields do
   begin
@@ -1979,6 +1985,7 @@ begin
 
     if DuplicateStrings.IndexOf(f.name) <> -1 then
        continue;
+
     DuplicateStrings.Add(f.name);
     defineEnums(f.FieldType);
 
@@ -2148,6 +2155,7 @@ begin
       TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_fields);
       TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_indexedProps);
       TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_props);
+
       //JS_DefineProperties(AEngine.Context, FJSClassProto, @Fclass_props[0]);
     end;
   end;
@@ -2832,7 +2840,11 @@ begin
 
     tkClass:
       begin
-        if (JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) then
+        if JSValIsNull(vp) then
+        begin
+           Result := TValue.From<pointer>( nil)
+        end
+        else if (JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) then
         begin
             pObj := JSValToObject(vp);
             ClassInstance := RttiType.AsInstance;
@@ -2957,6 +2969,8 @@ begin
     AInstance := self;
 
   FJSEngine := Engine;
+  FGlobalFields := cfaGlobalFields in AClassFlags;
+
   c := AInstance.ClassType;
 
   FClassProto := TJSClassProto.Create(c, AClassFlags);
@@ -2975,6 +2989,11 @@ begin
      TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_indexedProps);
   if length(FClassProto.Fclass_fields) > 0 then
      TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_fields);
+  if FGlobalFields then
+  begin
+     TJSClassProto.DefineProperties(Engine.Context, Engine.Global.JSObject, FClassProto.Fclass_fields);
+     JS_SetReservedSlot(Engine.Context, Engine.Global.JSObject, 0, JSObjectToJSVal(FJsobj));
+  end;
 
   B := JS_DefineFunctions(Engine.Context, Fjsobj, @FClassProto.Fclass_methods[0]);
   B := JS_DefineConstDoubles(Engine.Context, Fjsobj, @FClassProto.FConsts[0]);
@@ -3486,10 +3505,25 @@ var
   t: TRttiType;
   propIndex: Integer;
   f: TRttiField;
+  v: jsval;
 begin
+
+
   p := JS_GetPrivate(cx, jsobj);
   if p = nil then
-    exit;
+  begin
+    // Special case for fields defined in global scope
+    if TJSClass.JSEngine(cx).Global.JSObject = jsobj then
+    begin
+      if (JS_GetReservedSlot(cx, jsobj, 0,@v) = js_true) and JSValIsObject(v) then
+      begin
+         p := JS_GetPrivate(cx, JSValToObject(v));
+      end;
+    end;
+  end;
+
+  if p = nil then exit;
+
   Obj := TJSClass(p);
   t := Obj.FClassProto.FRttiType;
 

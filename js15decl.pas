@@ -1231,7 +1231,7 @@ function CreateAnsiString(const Text: AnsiString): PAnsiChar; overload;
 function CreateAnsiString(const Text: UnicodeString): PAnsiChar; overload;
 function CreateWideString(const Text: AnsiString): PWideChar; overload;
 function CreateWideString(const Text: UnicodeString): PWideChar; overload;
-procedure SetReservedSlots(Cls: JSClass; Reserve: Integer);
+procedure SetReservedSlots(var Cls: JSClass; Reserve: Integer);
 
 implementation
 
@@ -1451,7 +1451,7 @@ begin
   Result := PWideChar(Copy(Text, 1, Length(Text)));
 end;
 
-procedure SetReservedSlots(Cls: JSClass; Reserve: Integer);
+procedure SetReservedSlots(var Cls: JSClass; Reserve: Integer);
 begin
   Cls.flags := Cls.flags or ((Reserve and JSCLASS_RESERVED_SLOTS_MASK) shl JSCLASS_RESERVED_SLOTS_SHIFT);
 end;
