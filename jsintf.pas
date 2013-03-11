@@ -2992,7 +2992,9 @@ begin
   if FGlobalFields then
   begin
      TJSClassProto.DefineProperties(Engine.Context, Engine.Global.JSObject, FClassProto.Fclass_fields);
-     JS_SetReservedSlot(Engine.Context, Engine.Global.JSObject, 0, JSObjectToJSVal(FJsobj));
+     // Only one object is allowed to publish fields
+     if (JS_GetReservedSlot(Engine.Context, Engine.Global.JSObject,  0,@vp) = js_true) and JSValIsVoid(vp) then
+        JS_SetReservedSlot(Engine.Context, Engine.Global.JSObject, 0, JSObjectToJSVal(FJsobj));
   end;
 
   B := JS_DefineFunctions(Engine.Context, Fjsobj, @FClassProto.Fclass_methods[0]);
@@ -3183,11 +3185,17 @@ destructor TJSClass.Destroy;
 var
   i: Integer;
 begin
+  if FGlobalFields then
+     JS_SetReservedSlot(FJSEngine.Context, FJSEngine.Global.JSObject, 0, JSVAL_VOID);
+
   if (cfaOwnObject in FClassProto.FClassFlags) and Assigned(FNativeObj) and (FNativeObj <> self) then
-    FNativeObj.Free;
+     FNativeObj.Free;
+
   if assigned(FJSObject) then
      FJSObject.Free;
+
   FEventsCode.free;
+
   inherited;
 end;
 
