@@ -1294,7 +1294,7 @@ end;
 
 { SHR_INT32 }
 function  shr_int32(i ,shift : integer ) : integer;
-{$ifdef CPU64}
+{$ifdef CPUX64}
 asm
       // Source in ecx
       // Shift in dl
