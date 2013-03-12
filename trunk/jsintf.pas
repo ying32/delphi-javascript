@@ -57,7 +57,8 @@ type
   TJSClassFlagAttributes = set of (cfaInheritedMethods,     // Publish inherited methods
                                    cfaInheritedProperties,  // Publish inherited properties
                                    cfaOwnObject,            // Free object on javascript destructor
-                                   cfaGlobalFields);        // Register Private fields as properties to global object
+                                   cfaGlobalFields,         // Register Private fields as properties to global object
+                                   cfaGlobalProperties);    // global properties
 
   JSClassFlagsAttribute = class(TCustomAttribute)
   private
@@ -125,6 +126,7 @@ type
     constructor Create(AClass: TClass; AClassFlags: TJSClassFlagAttributes = []);
     destructor Destroy; override;
     class procedure DefineProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
+    class procedure DeleteProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
 
     property JSClassName: string read getJSClassName;
     property JSClassProto: PJSObject read FJSClassProto;
@@ -140,7 +142,7 @@ type
 
     // class function PropWrite(Obj: TJSClass; cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
   protected
-    FGlobalFields: boolean;
+    FClassFlags: TJSClassFlagAttributes;
     FClassProto: TJSClassProto;
     FJSEngine: TJSEngine;
 
@@ -2077,33 +2079,36 @@ var
   i: Integer;
   ok: JSBool;
 begin
-      for i := 0 to High(Props) do
-      begin
-         if Props[i].name = NIL then continue;
+  for i := 0 to High(Props) do
+  begin
+    if Props[i].name = NIL then continue;
 
-         ok := JS_DefineProperty( cx,
-                            obj,
-                            Props[i].name,
-                            JSVAL_NULL,
-                            Props[i].getter,
-                            Props[i].setter,
-                            Props[i].flags);
+    ok := JS_DefineProperty( cx,
+                      obj,
+                      Props[i].name,
+                      JSVAL_NULL,
+                      Props[i].getter,
+                      Props[i].setter,
+                      Props[i].flags);
 
-         if ok = js_false then
-         begin
-             ok := js_true;
-         end;
-
-{
-JSBool JS_DefineProperty(JSContext *cx, JSObject *obj,
-    const char *name, jsval value, JSPropertyOp getter,
-    JSStrictPropertyOp setter, unsigned attrs); }
-
-      end;
+  end;
 
 
 end;
 
+class procedure TJSClassProto.DeleteProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
+var
+  i: Integer;
+  ok: JSBool;
+begin
+  for i := 0 to High(Props) do
+  begin
+    if Props[i].name = NIL then continue;
+
+    ok := JS_DeleteProperty( cx, obj, Props[i].name);
+  end;
+end;
+
 destructor TJSClassProto.Destroy;
 var
   i: Integer;
@@ -2539,10 +2544,22 @@ var
   t: TRttiType;
   prop: TRttiProperty;
   propIndex: Integer;
+  v: jsval;
 begin
   p := JS_GetPrivate(cx, jsobj);
   if p = nil then
-    exit;
+  begin
+    // Special case for fields defined in global scope
+    if TJSClass.JSEngine(cx).Global.JSObject = jsobj then
+    begin
+      if (JS_GetReservedSlot(cx, jsobj, 0,@v) = js_true) and JSValIsObject(v) then
+      begin
+         p := JS_GetPrivate(cx, JSValToObject(v));
+      end;
+    end;
+  end;
+
+  if p = nil then exit;
   Obj := TJSClass(p);
   t := Obj.FClassProto.FRttiType;
 
@@ -2630,11 +2647,23 @@ var
   Method: TMethod;
   eventData: TJSEventData;
   func: PJSFunction;
+  jv: jsval;
 begin
 
   p := JS_GetPrivate(cx, jsobj);
   if p = nil then
-    exit;
+  begin
+    // Special case for fields defined in global scope
+    if TJSClass.JSEngine(cx).Global.JSObject = jsobj then
+    begin
+      if (JS_GetReservedSlot(cx, jsobj, 0,@jv) = js_true) and JSValIsObject(jv) then
+      begin
+         p := JS_GetPrivate(cx, JSValToObject(jv));
+      end;
+    end;
+  end;
+
+  if p = nil then exit;
 
   Obj := TJSClass(p);
 
@@ -2969,7 +2998,7 @@ begin
     AInstance := self;
 
   FJSEngine := Engine;
-  FGlobalFields := cfaGlobalFields in AClassFlags;
+  FClassFlags := AClassFlags;
 
   c := AInstance.ClassType;
 
@@ -2979,7 +3008,7 @@ begin
     TJSEngine(Engine).FDelphiClasses.Add(FClassProto.JSClassName, FClassProto);
 
   FNativeObj := AInstance;
-  Fjsobj := JS_NewObject(Engine.Context, @FClassProto.FJSClass, nil, Engine.Global.JSObject);
+  Fjsobj := JS_NewObject(Engine.Context, @FClassProto.FJSClass, nil, nil{Engine.Global.JSObject});
   FJSObject := TJSObject.Create(Fjsobj, Engine, JSObjectName);
   JS_SetPrivate(Engine.Context, Fjsobj, Pointer(self));
 
@@ -2989,9 +3018,15 @@ begin
      TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_indexedProps);
   if length(FClassProto.Fclass_fields) > 0 then
      TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_fields);
-  if FGlobalFields then
-  begin
+
+  if cfaGlobalFields in FClassFlags then
      TJSClassProto.DefineProperties(Engine.Context, Engine.Global.JSObject, FClassProto.Fclass_fields);
+
+  if cfaGlobalProperties in FClassFlags then
+     TJSClassProto.DefineProperties(Engine.Context, Engine.Global.JSObject, FClassProto.Fclass_props);
+
+  if (cfaGlobalProperties in FClassFlags) or (cfaGlobalFields in FClassFlags) then
+  begin
      // Only one object is allowed to publish fields
      if (JS_GetReservedSlot(Engine.Context, Engine.Global.JSObject,  0,@vp) = js_true) and JSValIsVoid(vp) then
         JS_SetReservedSlot(Engine.Context, Engine.Global.JSObject, 0, JSObjectToJSVal(FJsobj));
@@ -3185,7 +3220,7 @@ destructor TJSClass.Destroy;
 var
   i: Integer;
 begin
-  if FGlobalFields then
+  if (cfaGlobalFields in FClassFlags) or (cfaGlobalProperties in FClassFlags)  then
      JS_SetReservedSlot(FJSEngine.Context, FJSEngine.Global.JSObject, 0, JSVAL_VOID);
 
   if (cfaOwnObject in FClassProto.FClassFlags) and Assigned(FNativeObj) and (FNativeObj <> self) then
@@ -3682,287 +3717,6 @@ begin
   fcx := acx;
 
 end;
-
-(*
-  { TJSDebuggedScript }
-
-  function TJSDebuggedScript.ClearBreakPoint(lineNo: uintN): boolean;
-  var
-  pc: pjsbytecode;
-  t: JSTrapHandler;
-  p: pointer;
-  begin
-  pc := JS_LineNumberToPC(FEngine.Context, FScript, lineNo);
-  if pc = nil then
-  exit(false);
-
-  JS_ClearTrap(FEngine.Context, FScript, pc, t, p);
-
-  end;
-
-  procedure TJSDebuggedScript.ClearBreakPoints;
-  begin
-  JS_ClearAllTraps(FEngine.Context);
-  end;
-
-  procedure TJSDebuggedScript.Compile(const AFileName: string );
-  begin
-  inherited ;//Compile(FFilename);
-  //  Result := JS_CompileUCScript(fcx, fglobal, PWideChar(Code), Length(Code), 'inline', 0);
-
-  end;
-
-  constructor TJSDebuggedScript.Create(AEngine: TJSEngine; const ACode: String; const AFileName: String);
-  begin
-  inherited Create;
-
-  FEngine := AEngine;
-  FCode := ACode;
-  JS_SetNewScriptHook(FEngine.frt, _JSNewScriptHook, self);
-  JS_SetDestroyScriptHook(FEngine.frt, _JSDestroyScriptHook, Self);
-  JS_SetDebugErrorHook(FEngine.frt, _JSDebugErrorHook, self);
-  JS_SetExecuteHook(FEngine.frt, _JSInterpreterHook, self);
-  FMode := dmStepping;
-  FStarted := False;
-  FFrameStop := nil;
-  FFilename := AFilename;
-
-  //FEvent := TEvent.Create(nil, true, false, 'js_debug_event');
-  Compile(AFileName);
-
-  end;
-
-  function TJSDebuggedScript.Debug(cx: PJSContext; rval: pjsval; fp: PJSStackFrame): JSTrapStatus;
-  var
-  Action: TJSDebuggerAction;
-  begin
-  DoDebug(Action);
-
-  case Action of
-  daStepInto:
-  begin
-  JS_SetInterrupt(FEngine.frt,  _JSTrapHandler, self);
-  Fmode := dmStepping;
-  Result := JSTRAP_CONTINUE;
-  end;
-  daRun:
-  begin
-  JS_SetInterrupt(FEngine.frt, nil, nil);
-  Fmode := dmRun;
-  exit(JSTRAP_CONTINUE);
-  end;
-  daStepOver:
-  begin
-  FframeStop := fp;
-  Fmode := dmStepover;
-  exit(JSTRAP_CONTINUE);
-  end;
-  daStepOut:
-  begin
-  if (fp <> nil) and ( JS_IsNativeFrame(cx,fp) = js_false) then
-  FframeStop := JS_GetScriptedCaller(cx, fp);
-  fmode := dmStepout;
-  exit(JSTRAP_CONTINUE);
-
-  end;
-  end;
-  // test run
-
-  // test step
-  end;
-
-  destructor TJSDebuggedScript.Destroy;
-  begin
-  JS_SetNewScriptHook(FEngine.Context, NIL, NIL);
-  JS_SetDestroyScriptHook(FEngine.Context, NIL, NIL);
-  JS_SetDebugErrorHook(FEngine.frt, NIL, NIL);
-  JS_SetExecuteHook(FEngine.frt, NIL, NIL);
-  //FEvent.Free;
-  inherited;
-  end;
-
-  procedure TJSDebuggedScript.DoDebug(var Action: TJSDebuggerAction);
-  begin
-
-
-  Action := daRun;
-  if Assigned(FOnDebug) then
-  FOnDebug(Self, Action);
-  {while FEvent.WaitFor(500) = wrTimeout do
-  begin
-  Application.ProcessMessages;
-  end;
-  }
-  end;
-
-  function TJSDebuggedScript.SetBreakPoint(lineNo: uintN): boolean;
-  var
-  pc: pjsbytecode;
-  begin
-  pc := JS_LineNumberToPC(FEngine.Context, FScript, lineNo);
-  if pc = nil then
-  exit(false);
-
-  Result := JS_SetTrap(FEngine.Context, FScript, pc, _JSBreakHandler, self) = JS_TRUE;
-
-  end;
-
-  class function TJSDebuggedScript._JSBreakHandler(cx: PJSContext; Script: PJSScript; pc: pjsbytecode; rval: pjsval;
-  closure: pointer): JSTrapStatus;
-  var
-  scr: TJSDebuggedScript;
-  line: uintN;
-  begin
-  scr := TJSDebuggedScript(closure);
-  line := JS_PCToLineNumber(cx, script, pc);
-
-  scr.Fmode := dmBreak;
-  // traphandler will be called at the beginning of the js_Execute loop
-  JS_SetInterrupt(scr.FEngine.frt, _JSTrapHandler, closure);
-  JS_SetExecuteHook(scr.FEngine.frt, _JSInterpreterHook, closure);
-
-  result := JSTRAP_CONTINUE;
-  end;
-
-  class function TJSDebuggedScript._JSDebugErrorHook(cx: pJSContext; const _message: pansichar; report: PJSErrorReport;
-  closure: pointer): JSBool;
-  var
-  scr: TJSDebuggedScript;
-  begin
-  scr := TJSDebuggedScript(closure);
-  if scr = NIL then
-  exit(JS_TRUE);
-
-
-  end;
-
-  class procedure TJSDebuggedScript._JSDestroyScriptHook(cx: pJSContext; script: pjsscript; callerdata: pointer);
-  var
-  scr: TJSDebuggedScript;
-  begin
-  scr := TJSDebuggedScript(callerdata);
-  if scr = nil then exit;
-
-  JS_ClearScriptTraps(cx, script);
-
-
-  end;
-
-  class function TJSDebuggedScript._JSInterpreterHook(cx: pJSContext; fp: pJSStackFrame; before: JSBool; ok: PJSBool;
-  closure: pointer): pointer;
-  var
-  scr: TJSDebuggedScript;
-  s: PJSScript;
-  pc: pjsbytecode;
-  line: Integer;
-  begin
-
-  scr := TJSDebuggedScript(closure);
-  if scr.FMode = dmRun then exit(nil);
-
-
-  if (scr.FframeStop <> fp )and (
-  (scr.Fmode = dmStepout )or( scr.Fmode = dmStepover))
-  then exit(nil);
-
-  s := JS_GetFrameScript(cx, fp);
-  pc := JS_GetFramePC(cx, fp);
-  line := 0;
-  if (pc <> nil) then
-  line := JS_PCToLineNumber(cx,s,pc);
-
-
-  scr.FlastStop := s;
-  scr.FlastLine := line;
-
-  if (scr.Debug(cx, nil, fp) = JSTRAP_ERROR) then
-  begin
-  //exit if possible
-  if (ok <> nil) then ok^ := JS_FALSE;
-  exit(nil);
-  end;
-
-
-  if (before = js_true) then
-  begin
-  if (scr.Fmode = dmStepover )or( scr.Fmode = dmStepout) then
-  begin
-  JS_SetExecuteHook(scr.FEngine.Frt, nil, nil);
-  JS_SetInterrupt(scr.FEngine.Frt, nil, nil);
-  exit(closure); //call when done to restore debugger state.
-  end;
-  //running or stepping? no need to call again for this script.
-  exit(nil);
-  end else
-  begin
-  scr.Fmode := dmStepping;
-  JS_SetExecuteHook(scr.FEngine.Frt, _JSInterpreterHook, closure);
-  JS_SetInterrupt(scr.FEngine.Frt, _JSTrapHandler, closure);
-  exit(nil);
-  end;
-
-  end;
-
-  class procedure TJSDebuggedScript._JSNewScriptHook(cx: pJSContext; filename: PAnsiChar; lineno: uintN;
-  script: Pjsscript; fun: PJSFunction; callerdata: pointer);
-  var
-  scr: TJSDebuggedScript;
-  begin
-
-  scr := TJSDebuggedScript(callerdata);
-  end;
-
-  class function TJSDebuggedScript._JSTrapHandler(cx: PJSContext; Script: PJSScript; pc: pjsbytecode; rval: pjsval;
-  closure: pointer): JSTrapStatus; cdecl;
-  var
-  str: PJSString;
-  caller: PJSStackFrame;
-  scr: TJSDebuggedScript;
-  line: uintN;
-  begin
-  // JS_GC(cx);
-  scr := TJSDebuggedScript(closure);
-
-  if (pc <> nil) and (pc^ <> 0) and (pc^ <> 125) then
-  scr.FStarted := true;
-
-  if (not scr.FStarted) then
-  exit(JSTRAP_CONTINUE);
-
-
-  if (scr.Fmode = dmRun) then exit(JSTRAP_CONTINUE);
-  //  caller := JS_GetScriptedCaller(cx, nil);
-  line := JS_PCToLineNumber(cx, Script, pc);
-
-  if (
-  (
-  (Scr.Fmode = dmStepping)
-  or (Scr.Fmode = dmStepover)
-  or (Scr.Fmode = dmStepout)
-  )
-  and (script = scr.FlastStop)and (line = scr.FlastLine)
-  ) then
-  exit(JSTRAP_CONTINUE);
-
-  scr.FlastStop := script;
-  scr.FlastLine := line;
-
-  if (scr.Fmode = dmBreak) or (scr.Fmode = dmStepping ) then
-  begin
-  //scr.FlastLine := line;
-  end;
-
-  //if assigned(scr.FOnDebug) then scr.FOnDebug(scr);
-
-  // test step
-  //JS_SetInterrupt(rt,jsdb_TrapHandler,this);
-  //mode = Stepping;
-
-  //return JSTRAP_CONTINUE;
-  Result := scr.Debug(cx, rval, nil);
-  //  result := JSTRAP_CONTINUE;
-  end;
-*)
 
 end.
 
