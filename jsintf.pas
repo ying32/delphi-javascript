@@ -1638,19 +1638,14 @@ begin
 end;
 
 class function TJSScript.LoadScript(FileName: string): string;
-var
-  Stream: TFileStream;
 begin
-  Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyWrite);
-  Result := LoadScript(Stream);
-  Stream.Free;
-  { with TStreamReader.Create(fileName, TEncoding.UTF8, true) do
-    try
+  with TStreamReader.Create(fileName, TEncoding.UTF8, true) do
+  try
     Result := ReadToEnd;
-    finally
+  finally
     Free;
-    end;
-  }
+  end;
+
 end;
 
 procedure TJSScript.SaveCompiled(const AFile: String);
@@ -3191,20 +3186,27 @@ begin
       end;
     tkRecord:
       begin
-        //eng := TJSClass.JSEngine(cx);
-        ctx := TRttiContext.Create;
-        RttiType := ctx.GetType(Value.TypeInfo);
-        jsobj := JS_NewObject(cx, NIL, nil, nil);
-
-        for field in RttiType.GetFields do
+        if Value.TypeInfo = TypeInfo(TValue) then
         begin
-           v := Field.GetValue(Value.GetReferenceToRawData);
-           val := TValueToJSVal(cx, v, false);
-           JS_SetProperty(cx, jsObj, PAnsiChar(AnsiString(field.Name)), @val);
-        end;
+           Result := TValueToJSVal(cx, Value.AsType<TValue>, isDateTime);
 
-        Result := JSOBjectToJSVal(jsobj);
-        ctx.Free;
+
+        end
+        else begin
+          ctx := TRttiContext.Create;
+          RttiType := ctx.GetType(Value.TypeInfo);
+          jsobj := JS_NewObject(cx, NIL, nil, nil);
+
+          for field in RttiType.GetFields do
+          begin
+             v := Field.GetValue(Value.GetReferenceToRawData);
+             val := TValueToJSVal(cx, v, false);
+             JS_SetProperty(cx, jsObj, PAnsiChar(AnsiString(field.Name)), @val);
+          end;
+
+          Result := JSOBjectToJSVal(jsobj);
+          ctx.Free;
+        end;
       end;
   end;
 
