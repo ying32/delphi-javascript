@@ -313,7 +313,12 @@ begin
       begin
           fi := nil;
           fp := JS_FrameIterator(cx, fi);
-
+          (*if fp <> nil then
+          begin
+             JS_EvaluateInStackFrame(cx, fp,PAnsiChar(AnsiString(extra)), length(extra),0,0, @eval);
+             extra := JSStringToString(JS_ValueToString(cx, eval));
+          end;
+          *)
           m := fmode;
           FMode := dmRun;
           if extra <> '' then
