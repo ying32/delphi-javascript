@@ -199,6 +199,7 @@ type
   TJSDebuggerScripts = TDictionary<string, string>;
 
   TJSEngine = class
+  public class var DebugClientClass: TClass;
   private type
     TJSMethod = record
       method_class: TClass;
@@ -366,7 +367,7 @@ type
     function Declare(val: boolean; const Name: String): boolean; overload;
     class function enumerate(cx: PJSContext; obj: PJSObject): TArray<string>;
     function Evaluate(const Code: String; scriptFileName: AnsiString = ''): boolean; overload;
-    function Evaluate(const Code: String; var rval: jsval; scriptFileName: AnsiString = ''): boolean; overload;
+    function Evaluate(Code: String; var rval: jsval; scriptFileName: AnsiString = ''): boolean; overload;
     function Compile(const Code: String; scriptFileName: AnsiString = ''): PJSScript;
     function Execute(Script: PJSScript; rval: pjsval = NIL): boolean;
 
@@ -421,7 +422,7 @@ type
 
 implementation
 
-uses Math, ActiveX, DateUtils;
+uses Math, ActiveX, DateUtils, RegularExpressions;
 
 const
   NilMethod: TMethod = (Code: nil; data: nil);
@@ -430,11 +431,53 @@ Type
   pjsval_ptr = ^jsval_array;
   jsval_array = array [0 .. 256] of jsval;
 
+  TJSInternalGlobalFunctions = class
+  public
+    class procedure DebugBreak(Params: TJSNativeCallParams);
+  end;
+
   TJSIndexedProperty = class(TJSClass)
   public
     parentObj: TObject;
     propName: string;
   end;
+
+procedure CheckDebugBreak(Engine: TJSEngine; var code: string);
+var
+  Lines: TStringList;
+  lineBreak, i: integer;
+  ctx: TRttiContext;
+  RttiType: TRttiType;
+  m: TRttiMethod;
+begin
+  if TJSEngine.DebugClientClass = NIL then exit;
+
+  lineBreak := -1;
+  if pos('DebugBreak()', Code) > 1  then
+  begin
+     Lines:= TStringList.Create;
+     Lines.Text := Code;
+     for i:=0 to lines.count-1 do
+       if (pos('DebugBreak()', lines[i]) > 1) and (trim(lines[i]) = 'DebugBreak();') then
+       begin
+          lineBreak := i+1;
+          if (not Engine.Debugging) and (TJSEngine.DebugClientClass <> NIL)  then
+          begin
+            Engine.Debugging := true;
+            ctx := TRttiContext.Create;
+            RttiType := ctx.GetType(TJSEngine.DebugClientClass);
+            m := RttiType.GetMethod('Create');
+            m.Invoke(RttiType.AsInstance.MetaclassType,[]);
+            ctx.Free;
+          end;
+
+          Engine.Debugger.TrapBreakpoint := lineBreak;
+          break;
+       end;
+
+     Lines.Free;
+  end;
+end;
 
 function strdup(s: AnsiString): PAnsiChar;
 begin
@@ -569,6 +612,7 @@ begin
   FDebuggerScripts := TJSDebuggerScripts.Create;
   FMethodNamesMap := TDictionary<string, TJSMethod>.Create;
 
+  registerGlobalFunctions(TJSInternalGlobalFunctions);
   //strictMode := true;
 end;
 
@@ -652,14 +696,17 @@ end;
 function TJSEngine.EvaluateFile(const FileName: String; Scope: TJSObject): boolean;
 var
   filenameutf8: UTF8String;
-  Code: string;
+  s, Code: string;
   rval: jsval;
+  Lines: TStringList;
 begin
   if Scope = nil then
     Scope := fnativeglobal;
 
   filenameutf8 := FileName;
   Code := TJSScript.LoadScript(FileName);
+  CheckDebugBreak(self, code);
+
   if FDebugging then
     FDebuggerScripts.AddOrSetValue(FileName, Code);
 
@@ -1235,7 +1282,6 @@ end;
 
 function TJSObject.Compile(const Code: String; scriptFileName: AnsiString): PJSScript;
 begin
-  // Result := JS_EvaluateScript(FEngine.Context, FJSObj, PWideChar(code), Length(code), nil, 0, @rval) = 1;
   Result := JS_CompileUCScript(FEngine.Context, Fjsobj, PWideChar(Code), Length(Code), PAnsiChar(scriptFileName), 0);
 end;
 
@@ -1317,13 +1363,15 @@ begin
   end;
 end;
 
-function TJSObject.Evaluate(const Code: String; var rval: jsval; scriptFileName: AnsiString): boolean;
+function TJSObject.Evaluate( Code: String; var rval: jsval; scriptFileName: AnsiString): boolean;
 begin
   CheckConnection;
   // Result := false;
 
   if scriptFileName = '' then
     scriptFileName := generateScriptName;
+
+  CheckDebugBreak(FEngine, code);
 
   if FEngine.FDebugging then
      FEngine.FDebuggerScripts.AddOrSetValue(scriptFileName, Code);
@@ -3717,6 +3765,18 @@ begin
   fmethodname := amethodname;
   fobj := aobj;
   fcx := acx;
+
+end;
+
+{ TJSInternalGlobalFunctions }
+
+class procedure TJSInternalGlobalFunctions.DebugBreak(Params: TJSNativeCallParams);
+var
+  eng: TJSEngine;
+begin
+  eng := TJSClass.JSEngine(Params.cx);
+{  eng.Debugging := true;
+  TJSDebugClient.Create();}
 
 end;
 

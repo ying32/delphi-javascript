@@ -44,6 +44,8 @@ Type
     FNamedPipe: TNamedPipeServer;
     FScripts: TJSDebugScripts;
     FBreakPoints: TJSDebugBreakpoints;
+    FTrapBreakpoint: Integer;
+    FCurrentScriptName: string;
 
   protected
     // JS callbacks
@@ -76,6 +78,7 @@ Type
 
     property Scripts: TJSDebugScripts read FScripts;
     property BreakPoints: TJSDebugBreakpoints read FBreakPoints;
+    property TrapBreakpoint: Integer read FTrapBreakpoint write FTrapBreakpoint;
   end;
 
 implementation
@@ -171,6 +174,7 @@ begin
 
   FScripts:= TJSDebugScripts.Create;
   FBreakPoints:= TJSDebugBreakpoints.Create;
+  FTrapBreakpoint := -1;
 end;
 
 function TJSDebugServer.Debug(cx: PJSContext; rval: pjsval; fpa: PJSStackFrame): JSTrapStatus;
@@ -180,7 +184,7 @@ var
   script: PJSScript;
   newLineNo, lineNo: integer;
   pc: pjsbytecode;
-  extra: string;
+  scriptName, extra: string;
   value: TJSDebugScript;
   breakPoint: TJSBreakpoint;
   m: TJSDebuggerMode;
@@ -237,15 +241,22 @@ begin
     while True do
     begin
       { TODO : Not sure about this code }
-      line := readLine;
+      if Self.FTrapBreakpoint <> -1 then
+      begin
+         script := JS_GetFrameScript(cx, fpa);
+         scriptName := JS_GetScriptFilename(cx, script);
+         script := getScript(scriptName, Self.FTrapBreakpoint);
+         newLineNo := setBreakPoint(script, Self.FTrapBreakpoint);
+         line := 'run';
+         Self.FTrapBreakpoint := -1;
+      end
+      else  line := readLine;
       extra := strAfter(' ', line);
       cmd := strBefore(' ', line);
 
       fp := fpa;
       if (fp = nil) then
-      begin
          fp := JS_FrameIterator(cx, fp);
-      end;
 
       if sameText(cmd, 'run') then
       begin
@@ -446,12 +457,12 @@ begin
 //  opcode := JS_GetTrapOpcode(cx, s, pc);
   scriptName := JS_GetScriptFilename(cx, s);
 
+  scr.FCurrentScriptName := scriptName;
   scr.Fdepth := 0;
   scr.FNamedPipe.Write(Format('STOP SCRIPT "%s"@%d@%d', [scriptName, line, nativeInt(cx)]));
 
   scr.FlastStop := s;
   scr.FlastLine := line;
-
   if (scr.Debug(cx, nil, fp) = JSTRAP_ERROR) then
   begin
     // exit if possible
