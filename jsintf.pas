@@ -10,6 +10,7 @@ var
     enumerate: JS_EnumerateStub; resolve: JS_ResolveStub; convert: JS_ConvertStub; finalize: JS_FinalizeStub);
 
 type
+  TJSFunctionsDynArray =  array of JSFunctionSpec;
   TJSPropertiesDynArray =  array of JSPropertySpec;
   PWord = ^Word;
   PInteger = ^Integer;
@@ -105,7 +106,7 @@ type
     FJSCtor: TRttiMethod;
     FJSClass: JSExtendedClass;
     FClass: TClass;
-    Fclass_methods: array of JSFunctionSpec;
+    Fclass_methods: TJSFunctionsDynArray;
 
     Fclass_props: TJSPropertiesDynArray;
     Fclass_indexedProps: TJSPropertiesDynArray;
@@ -126,6 +127,7 @@ type
     constructor Create(AClass: TClass; AClassFlags: TJSClassFlagAttributes = []);
     destructor Destroy; override;
     class procedure DefineProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
+    class procedure DefineFunctions(cx: PJSContext; obj: PJSObject; funcs: TJSFunctionsDynArray);
     class procedure DeleteProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
 
     property JSClassName: string read getJSClassName;
@@ -357,7 +359,7 @@ type
     constructor Create(AValue: PJSObject; AEngine: TJSEngine; const AName: String; AParent: TJSObject); overload;
     destructor Destroy; override;
 
-    function AddMethods(var methods: TJSFunctionSpecArray): boolean;
+    function AddMethods(var methods: TJSFunctionsDynArray): boolean;
     function AddNativeObject(Obj: TObject; const InstanceName: String): TJSObject;
 
     function ClassType(const Name: String): JSClassType;
@@ -954,7 +956,7 @@ var
   exclude: boolean;
   methodName: string;
   a: TCustomAttribute;
-  methods: TJSFunctionSpecArray;
+  methods: TJSFunctionsDynArray;
   method: TJSMethod;
   f: TRttiField;
   i: integer;
@@ -1004,7 +1006,7 @@ begin
   if methods <> nil then
   begin
     SetLength(methods, Length(methods) + 1);
-    JS_DefineFunctions(Context, fglobal, @methods[0]);
+    TJSClassProto.DefineFunctions(Context, fglobal, methods);
     for i:=0 to high(methods) do
        freeMem(methods[i].name);
   end;
@@ -1212,7 +1214,7 @@ end;
 
 { TJSObject }
 
-function TJSObject.AddMethods(var methods: TJSFunctionSpecArray): boolean;
+function TJSObject.AddMethods(var methods: TJSFunctionsDynArray): boolean;
 var
   len: Integer;
 begin
@@ -1222,7 +1224,8 @@ begin
   SetLength(methods, len + 1);
   FillChar(methods[len], SizeOf(JSFunctionSpec), #0);
 
-  Result := (JS_DefineFunctions(FEngine.Context, Fjsobj, @methods[0]) = js_true);
+  Result := true;
+  TJSClassProto.DefineFunctions(FEngine.Context, Fjsobj,methods);
 end;
 
 function TJSObject.AddNativeObject(Obj: TObject; const InstanceName: String): TJSObject;
@@ -1544,10 +1547,10 @@ function TJSObject.setProperty(const Name: String; val: TJSBase): boolean;
 begin
   CheckConnection;
   if (HasProperty(name)) then
-    Result := (JS_SetUCProperty(FEngine.Context, Fjsobj, CreateWideString(name), Length(name), @val.JScriptVal)
+    Result := (JS_SetUCProperty(FEngine.Context, Fjsobj, PWideChar(name), Length(name), @val.JScriptVal)
       = js_true)
   else
-    Result := (JS_DefineUCProperty(FEngine.Context, Fjsobj, CreateWideString(name), Length(name), val.JScriptVal, nil,
+    Result := (JS_DefineUCProperty(FEngine.Context, Fjsobj, PWideChar(name), Length(name), val.JScriptVal, nil,
       nil, JSPROP_ENUMERATE) = js_true);
 end;
 
@@ -1784,6 +1787,18 @@ begin
 
 end;
 
+class procedure TJSClassProto.DefineFunctions(cx: PJSContext; obj: PJSObject; funcs: TJSFunctionsDynArray);
+var
+  i: Integer;
+begin
+  for i := 0 to high(funcs) do
+  begin
+     if funcs[i].name <> nil then
+       JS_DefineFunction(cx, obj,
+          funcs[i].name, funcs[i].call, funcs[i].nargs,0);
+  end;
+end;
+
 procedure TJSClassProto.DefineJSClass(AClass: TClass; AClassFlags: TJSClassFlagAttributes);
 var
 
@@ -1961,7 +1976,7 @@ begin
     Fclass_methods[high(Fclass_methods)].Name := strdup(methodName);
     Fclass_methods[high(Fclass_methods)].Call := @TJSClass.JSMethodCall;
     Fclass_methods[high(Fclass_methods)].nargs := Length(m.GetParameters);
-    Fclass_methods[high(Fclass_methods)].flags := 0;
+    Fclass_methods[high(Fclass_methods)].flags := 0;//JSPROP_SHARED or JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
     Fclass_methods[high(Fclass_methods)].extra := 0;
 
   end;
@@ -2197,7 +2212,7 @@ begin
       nil, nil, nil, nil);
     if FJSClassProto <> nil then
     begin
-      JS_DefineFunctions(AEngine.Context, FJSClassProto, @Fclass_methods[0]);
+      TJSClassProto.DefineFunctions(AEngine.Context, FJSClassProto, Fclass_methods);
       JS_DefineConstDoubles(AEngine.Context, AEngine.Global.JSObject, @FConsts[0]);
 
       TJSClassProto.DefineProperties(AEngine.Context, FJSClassProto, Fclass_fields);
@@ -3032,6 +3047,7 @@ var
   nextobj: PJSObject;
   vp: jsval;
   n: string;
+  i: integer;
 begin
 
   if FClassProto <> NIL then
@@ -3075,7 +3091,7 @@ begin
         JS_SetReservedSlot(Engine.Context, Engine.Global.JSObject, 0, JSObjectToJSVal(FJsobj));
   end;
 
-  B := JS_DefineFunctions(Engine.Context, Fjsobj, @FClassProto.Fclass_methods[0]);
+  TJSClassProto.DefineFunctions(Engine.Context, Fjsobj, FClassProto.Fclass_methods);
   B := JS_DefineConstDoubles(Engine.Context, Fjsobj, @FClassProto.FConsts[0]);
 
 
