@@ -636,7 +636,7 @@ typedef JSBool
     extra: uint32;
 {$endif}
   end;
-  TJSFunctionSpecArray = array of JSFunctionSpec;
+//  TJSFunctionsSpecArray = array of JSFunctionSpec;
 
   JSProperty = record
     id: jsid;
