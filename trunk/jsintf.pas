@@ -1904,7 +1904,7 @@ begin
   Fclass_indexedProps := NIL;
   FClass_fields := nil;
   FConsts := nil;
-
+  defaultCtor := nil;
 
   Fctx := TRttiContext.Create;
   FRttiType := Fctx.GetType(AClass);
@@ -3357,6 +3357,7 @@ var
   t: TRttiType;
   ctor, m: TRttiMethod;
   i: Integer;
+  params: TArray<TRttiParameter>;
 begin
   Result := js_true;
   if (JS_IsConstructing(cx) = JS_FALSE) then
@@ -3373,7 +3374,8 @@ begin
     // Call objects javascript ctor methods
     if defClass.FJSCtor <> nil then
     begin
-      args := TJSClass.JSArgsToTValues(defClass.FJSCtor.GetParameters, cx, jsobj, argc, argv);
+      params := defClass.FJSCtor.GetParameters;
+      args := TJSClass.JSArgsToTValues(Params, cx, jsobj, argc, argv);
       try
         methodResult := defClass.FJSCtor.Invoke(defClass.FClass, args);
         // Construct TJSClass if needed
