@@ -123,7 +123,7 @@ type
     procedure DefineJSClass(AClass: TClass; AClassFlags: TJSClassFlagAttributes = []);
     // Used from Engine.registerClass;
     procedure JSInitClass(AEngine: TJSEngine);
-    function CreateNativeObject(AClass: TClass): TObject;
+    function CreateNativeObject(cx: PJSContext; AClass: TClass): TObject;
   public
     constructor Create(AClass: TClass; AClassFlags: TJSClassFlagAttributes = []);
     destructor Destroy; override;
@@ -149,6 +149,7 @@ type
     FClassFlags: TJSClassFlagAttributes;
     FClassProto: TJSClassProto;
     FJSEngine: TJSEngine;
+    FFreeNotifies: TList<TJSClass>;
 
     class function JSMethodCall(cx: PJSContext; jsobj: PJSObject; argc: uintN; argv, rval: pjsval): JSBool; cdecl; static;
     class function JSPropWrite(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
@@ -172,7 +173,13 @@ type
     procedure JSMouseMoveEvent(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 
     // procedure TForm12.FormMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure RemoveNotification(AClass: TJSClass);
+    procedure Notification(AClass: TJSClass; Operation: TOperation); virtual;
+    procedure RemoveFreeNotifications;
+    procedure FreeNotification(AClass: TJSClass);
+    procedure RemoveFreeNotification(AClass: TJSClass);
 
+//    procedure RemoveFreeNotification(AClass: TJSClass);
   public
     constructor Create; virtual;
     constructor CreateJSObject(Instance: TObject; AEngine: TJSEngine; JSObjectName: string = '';
@@ -180,7 +187,7 @@ type
     constructor CreateJSObject(AEngine: TJSEngine; JSObjectName: string = ''); overload; virtual;
     destructor Destroy; override;
 
-    class function TValueToJSVal(cx: PJSContext; Value: TValue; isDateTime: boolean = false; classObj: TJSClass = NIL; propName: string = ''): jsval; overload;
+    class function TValueToJSVal(cx: PJSContext; Value: TValue; isDateTime: boolean = false; classObj: TJSClass = NIL; propName: string = ''): jsval;
     class function JSValToTValue(cx: PJSContext; t: PTypeInfo; vp: jsval; RttiType: TRttiType): TValue; overload;
     class function JSArgsToTValues(params: TArray<TRttiParameter>; cx: PJSContext; jsobj: PJSObject; argc: uintN;
       argv: pjsval): TArray<TValue>; overload;
@@ -1789,7 +1796,7 @@ end;
 
 { TJSClassProto }
 
-function TJSClassProto.CreateNativeObject(AClass: TClass): TObject;
+function TJSClassProto.CreateNativeObject(cx: PJSContext; AClass: TClass): TObject;
 var
   t: TRttiType;
   m: TRttiMethod;
@@ -2696,6 +2703,7 @@ var
   propIndex: Integer;
   iObj: TJSIndexedProperty;
   v: TValue;
+  idx: integer;
 begin
   p := JS_GetPrivate(cx, jsobj);
   if p = nil then
@@ -2703,6 +2711,7 @@ begin
   Obj := TJSClass(p);
 
 {$IF CompilerVersion >= 23}
+  //OutputDebugString(PChar(Format('Before.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
   if JSValIsInt(id) then
   begin
     if (Obj.FNativeObj is TJSIndexedProperty)  then
@@ -2713,6 +2722,8 @@ begin
         prop := t.getIndexedProperty(iObj.propName);
         if prop <> nil then
         begin
+          idx := JSValToInt(id);
+        //OutputDebugString(pchar(format('%s[%d]', [iObj.propName, idx])));
           v := JSValToInt(id);
           v := prop.ReadMethod.Invoke(Obj.FNativeObj, [v]);
           vp^ := TValueToJSVal(cx, v, prop.propertytype.name = 'TDateTime'
@@ -2738,6 +2749,7 @@ begin
       end;
     end;
   end;
+  //OutputDebugString(PChar(Format('After.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
 {$ifend}
 
   Result := js_true;
@@ -3163,6 +3175,68 @@ begin
 
 end;
 
+procedure TJSClass.Notification(AClass: TJSClass; Operation: TOperation);
+var
+  I: Integer;
+  v: TJSClass;
+  p: TPair<string, TJSClass>;
+begin
+  if (Operation = opRemove) and (AClass <> nil) then
+  begin
+    for p in FPointerProps do
+    begin
+        if p.Value = AClass then
+        begin
+           FPointerProps.Remove(p.Key);
+           break;
+        end;
+    end;
+    RemoveFreeNotification(AClass);
+  end;
+end;
+
+procedure TJSClass.RemoveFreeNotification(AClass: TJSClass);
+begin
+  RemoveNotification(AClass);
+  AClass.RemoveNotification(Self);
+
+end;
+
+procedure TJSClass.RemoveFreeNotifications;
+begin
+  if FFreeNotifies <> nil then
+  begin
+    while Assigned(FFreeNotifies) and (FFreeNotifies.Count > 0) do
+      FFreeNotifies[FFreeNotifies.Count - 1].Notification(Self, opRemove);
+    FreeAndNil(FFreeNotifies);
+  end;
+
+end;
+
+procedure TJSClass.RemoveNotification(AClass: TJSClass);
+var
+  Count: Integer;
+begin
+  if FFreeNotifies <> nil then
+  begin
+    Count := FFreeNotifies.Count;
+    if Count > 0 then
+    begin
+      { On destruction usually the last item is deleted first }
+      if FFreeNotifies[Count - 1] = AClass  then
+        FFreeNotifies.Delete(Count - 1)
+      else
+        FFreeNotifies.Remove(AClass);
+    end;
+    if FFreeNotifies.Count = 0 then
+    begin
+      FFreeNotifies.Free;
+      FFreeNotifies := nil;
+    end;
+  end;
+
+end;
+
 class function TJSClass.TValueToJSVal(cx: PJSContext; Value: TValue; isDateTime: boolean; classObj: TJSClass; propName: string): jsval;
 var
   L: LongWord;
@@ -3273,7 +3347,7 @@ begin
       Result := StringToJSVal(cx, Value.AsString);
     tkClass:
       begin
-
+        propClass := nil;
         if  assigned(classObj) and
             classObj.FPointerProps.TryGetValue(propName, propClass) and
             (Value.AsObject = propClass.FNativeObj) then
@@ -3319,6 +3393,7 @@ begin
 
         if assigned(classObj) and JSValIsObject(result) and (propClass = nil ) and (retClass <> nil) then
         begin
+           retClass.FreeNotification(classObj);
            classObj.FPointerProps.Add(propName, retClass);
         end;
 
@@ -3375,6 +3450,7 @@ constructor TJSClass.Create;
 begin
   FEventsCode := TObjectDictionary<string, TJSEventData>.Create([doOwnsValues]);
   FPointerProps:= TDictionary<string, TJSClass>.Create;
+  FFreeNotifies:= TList<TJSClass>.Create;
 
 end;
 
@@ -3382,6 +3458,10 @@ destructor TJSClass.Destroy;
 var
   i: Integer;
 begin
+//  OutputDebugString(pchar('Free '+fnativeobj.classname));
+
+  RemoveFreeNotifications;
+
   if (cfaGlobalFields in FClassFlags) or (cfaGlobalProperties in FClassFlags)  then
      JS_SetReservedSlot(FJSEngine.Context, FJSEngine.Global.JSObject, 0, JSVAL_VOID);
 
@@ -3393,7 +3473,6 @@ begin
 
   FEventsCode.free;
   FPointerProps.free;
-
   inherited;
 end;
 
@@ -3406,6 +3485,12 @@ begin
 
   end;
 
+end;
+
+procedure TJSClass.FreeNotification(AClass: TJSClass);
+begin
+  if FFreeNotifies.IndexOf(AClass) = -1 then
+     FFreeNotifies.Add(AClass);
 end;
 
 constructor TJSClass.CreateJSObject(Instance: TObject; AEngine: TJSEngine; JSObjectName: string;
@@ -3498,7 +3583,7 @@ begin
     begin
       if defClass.FClass.InheritsFrom(TJSClass) then
       begin
-        Obj := defClass.CreateNativeObject(defClass.FClass) as TJSClass;
+        Obj := defClass.CreateNativeObject(cx, defClass.FClass) as TJSClass;
         Obj.FNativeObj := Obj;
         TJSClass(Obj).FJSEngine := eng;
       end
@@ -3546,7 +3631,7 @@ begin
 
         // Fallback to default constructor
         if Obj.FNativeObj = nil then
-          Obj.FNativeObj := defClass.CreateNativeObject(defClass.FClass);
+          Obj.FNativeObj := defClass.CreateNativeObject(cx, defClass.FClass);
       end;
       Obj.FClassProto := defClass;
     end;
