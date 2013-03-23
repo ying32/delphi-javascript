@@ -100,6 +100,7 @@ type
   TJSPropRead = reference to function (cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
 
   TJSClassProto = class(TObject)
+  //private class constructor Create;
   private
     function getJSClassName: string;
   protected
@@ -142,8 +143,9 @@ type
     FNativeObj: TObject;
     FJSObject: TJSObject;
 
-    // class function PropWrite(Obj: TJSClass; cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; static;
   protected
+    // Cache tkClass properties
+    FPointerProps: TDictionary<string, TJSClass>;
     FClassFlags: TJSClassFlagAttributes;
     FClassProto: TJSClassProto;
     FJSEngine: TJSEngine;
@@ -214,6 +216,7 @@ type
     end;
 
   var
+    FRttiContext: TRttiContext;
     farrayclass: PJSClass;
     fbooleanclass: PJSClass;
     fcx: PJSContext;
@@ -424,7 +427,7 @@ type
 
 implementation
 
-uses Math, ActiveX, DateUtils, RegularExpressions;
+uses PSApi, Math, ActiveX, DateUtils, RegularExpressions;
 
 const
   NilMethod: TMethod = (Code: nil; data: nil);
@@ -443,6 +446,24 @@ Type
     parentObj: TObject;
     propName: string;
   end;
+
+function MBytes(Bytes: int64): double;
+begin
+  Result := Bytes / 1024 / 1024;
+end;
+
+function CurrentMemoryUsage: Cardinal;
+var
+  pmc: TProcessMemoryCounters;
+begin
+  pmc.cb := SizeOf(pmc);
+  if GetProcessMemoryInfo(GetCurrentProcess, @pmc, SizeOf(pmc)) then
+    Result := pmc.WorkingSetSize
+  else
+  begin
+    Result := 0; // RaiseLastOSError;
+  end;
+end;
 
 procedure CheckDebugBreak(Engine: TJSEngine; var code: string);
 var
@@ -506,6 +527,11 @@ end;
 procedure Debug(s: string);
 begin
   OutputDebugString(PChar(s));
+end;
+
+function JSBranchCallback(cx: PJSContext; script: PJSScript): JSBool; cdecl;
+begin
+  JS_MaybeGC(cx);
 end;
 
 procedure ErrorReporter(cx: PJSContext; message: PAnsiChar; report: PJSErrorReport); cdecl;
@@ -602,6 +628,9 @@ begin
   fcx := JS_NewContext(frt, fstackSize);
   JS_SetRuntimePrivate(frt, self);
 
+  FRttiContext := TRttiContext.Create;
+  JS_SetContextPrivate(fcx, @FRttiContext);
+
   SetReservedSlots(global_class, 1);
   fglobal := JS_NewObject(fcx, @global_class, nil, nil);
   JS_SetErrorReporter(fcx, ErrorReporter);
@@ -614,6 +643,9 @@ begin
   FDebuggerScripts := TJSDebuggerScripts.Create;
   FMethodNamesMap := TDictionary<string, TJSMethod>.Create;
 
+  JS_SetOptions(fcx, JS_GetOptions(fcx) or JSOPTION_VAROBJFIX);
+
+  JS_SetBranchCallback(fcx, JSBranchCallback);
   registerGlobalFunctions(TJSInternalGlobalFunctions);
   //strictMode := true;
 end;
@@ -2090,7 +2122,7 @@ begin
     defineEnums(p.PropertyType);
 
     SetLength(Fclass_props, Length(Fclass_props) + 1);
-    Fclass_props[high(Fclass_props)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_SHARED{or JSPROP_INDEX};
+    Fclass_props[high(Fclass_props)].flags := JSPROP_ENUMERATE or JSPROP_PERMANENT or JSPROP_SHARED;
     Fclass_props[high(Fclass_props)].Name := strdup(p.Name);//PAnsiChar(High(Fclass_props));//strdup(p.Name);
     if p.IsReadable then
       Fclass_props[high(Fclass_props)].getter := @TJSClass.JSPropRead;
@@ -2354,13 +2386,17 @@ begin
   eventData := TJSEventData(self);
   f_argv := JSObjectToJSVal(TJSClass(eventData.fobj).Fjsobj);
 
+
+//  if (JS_EnterLocalRootScope(eventData.fcx) = js_false) then exit;
+
   if JS_CallFunctionValue(eventData.fcx, eventData.fjsfuncobj, JSObjectToJSVal(eventData.fjsfuncobj), 1, @f_argv,
     @f_rval) = js_true then
   begin
     f_rval := 0;
   end;
-  // showmessage(sender.ClassName);
-  //
+
+//  JS_LeaveLocalRootScope(eventData.fcx);
+
 end;
 
 class function TJSClass.JSPrintf(JSEngine: TJSEngine; const fmt: String; argc: Integer; args: pjsval): String;
@@ -2596,14 +2632,19 @@ end;
 
 class function TJSClass.JSPropRead(cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
 var
-  propName: String;
+  str, propName: String;
   p: Pointer;
   Obj: TJSClass;
   t: TRttiType;
   prop: TRttiProperty;
   propIndex: Integer;
   v: jsval;
+  propValue: TValue;
+  propClass: TJSClass;
+  classObj: PJSObject;
 begin
+
+  //OutputDebugString(PChar(Format('Before.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
   p := JS_GetPrivate(cx, jsobj);
   if p = nil then
   begin
@@ -2626,12 +2667,44 @@ begin
      propName := JSValToString(cx, id)
   else
      propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
-//  propName := Obj.FClassProto.Fclass_props[JSValToInt(id) + 127].Name;
+
+
   prop := t.getProperty(propName);
   if prop <> nil then
-    vp^ := TValueToJSVal(cx, prop.GetValue(Obj.FNativeObj), prop.propertytype.name = 'TDateTime')
+  begin
+    propClass := nil;
+    propValue := prop.GetValue(Obj.FNativeObj);
+
+    if (propValue.Kind = tkClass) and Obj.FPointerProps.TryGetValue(propName, propClass) and (propValue.AsObject = propClass.FNativeObj) then
+    begin
+       vp^ := JSObjectToJSVal(propClass.fjsobj);
+    end
+    else begin
+       if propClass <> nil then
+       begin
+          Obj.FPointerProps.Remove(propName);
+          FreeAndNil(propClass);
+       end;
+
+       vp^ := TValueToJSVal(cx, propValue, prop.propertytype.name = 'TDateTime');
+    end;
+
+    if (propValue.Kind = tkClass) and JSValIsObject(vp^) and (propClass = nil ) then
+    begin
+        classObj := JSValToObject(vp^);
+        p := JS_GetPrivate(cx, classObj);
+        if (p <> nil) and (TObject(p) is TJSClass) then
+        begin
+          Obj.FPointerProps.Add(propName, p);
+        end;
+
+    end;
+
+  end
   else
     vp^ := JSVAL_NULL;
+  //OutputDebugString(PChar(Format('After.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
+
   Result := js_true;
 end;
 
@@ -3048,6 +3121,18 @@ var
   vp: jsval;
   n: string;
   i: integer;
+  p: TJSClassProto;
+
+
+  function getClassProto(AClassName: String): TJSClassProto;
+  var
+    p: TJSClassProto;
+  begin
+    for p in TJSEngine(Engine).FDelphiClasses.Values do
+       if p.FClass.ClassName = AInstance.ClassName then exit(p);
+
+    Result := nil;
+  end;
 begin
 
   if FClassProto <> NIL then
@@ -3060,6 +3145,9 @@ begin
   FClassFlags := AClassFlags;
 
   c := AInstance.ClassType;
+
+  // FClass.classname
+  p := GetClassProto(Ainstance.ClassName);
 
   FClassProto := TJSClassProto.Create(c, AClassFlags);
 
@@ -3207,25 +3295,30 @@ begin
     tkClass:
       begin
         Obj := Value.AsObject;
-//        outputdebugstring(pwidechar(obj.classname));
-        eng := TJSClass.JSEngine(cx);
-        Result := JSVAL_NULL;
-        for classProto in eng.FDelphiClasses.Values do
+        if obj = NIL then
         begin
-          if classProto.FRttiType.Name = Obj.ClassName then
+             Result := JSVAL_NULL;
+        end
+        else begin
+          eng := TJSClass.JSEngine(cx);
+          Result := JSVAL_NULL;
+          for classProto in eng.FDelphiClasses.Values do
           begin
-            with TJSClass.CreateJSObject(Obj, eng, '', classProto.FClassFlags) do
-              Result := JSObjectToJSVal(Fjsobj);
-            break;
+            if classProto.FRttiType.Name = Obj.ClassName then
+            begin
+              with TJSClass.CreateJSObject(Obj, eng, '', classProto.FClassFlags) do
+                Result := JSObjectToJSVal(Fjsobj);
+              break;
+            end;
+
           end;
 
-        end;
-
-        if Result = JSVAL_NULL then
-        begin
-          // Create JS Object
-          with TJSClass.CreateJSObject(Obj, eng, '', [cfaInheritedMethods, cfaInheritedProperties]) do
-            Result := JSObjectToJSVal(Fjsobj);
+          if Result = JSVAL_NULL then
+          begin
+            // Create JS Object
+            with TJSClass.CreateJSObject(Obj, eng, '', [cfaInheritedMethods, cfaInheritedProperties]) do
+              Result := JSObjectToJSVal(Fjsobj);
+          end;
         end;
 
       end;
@@ -3279,6 +3372,7 @@ end;
 constructor TJSClass.Create;
 begin
   FEventsCode := TObjectDictionary<string, TJSEventData>.Create([doOwnsValues]);
+  FPointerProps:= TDictionary<string, TJSClass>.Create;
 
 end;
 
@@ -3296,6 +3390,7 @@ begin
      FJSObject.Free;
 
   FEventsCode.free;
+  FPointerProps.free;
 
   inherited;
 end;

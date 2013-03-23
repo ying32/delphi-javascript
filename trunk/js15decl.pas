@@ -812,6 +812,11 @@ function JS_AddExternalStringFinalizer(finalizer: JSStringFinalizeOp): intN; cde
 function JS_AddNamedRoot(cx: PJSContext; rp: Pointer; name: PAnsiChar): JSBool; cdecl; external libName ;
 function JS_AddNamedRootRT(rt: PJSRuntime; rp: Pointer; name: PAnsiChar): JSBool; cdecl; external libName ;
 function JS_AddRoot(cx: PJSContext; rp: Pointer): JSBool; cdecl; external libName ;
+
+procedure JS_ForgetLocalRoot(cx: PJSContext; thing: pointer); cdecl; external libName ;
+function JS_EnterLocalRootScope(cx: PJSContext): JSBool; cdecl; external libName ;
+procedure JS_LeaveLocalRootScope(cx: PJSContext); cdecl; external libName ;
+
 function JS_AliasElement(cx: PJSContext; obj: PJSObject; name: PAnsiChar; alias: jsint): JSBool; cdecl; external libName ;
 function JS_AliasProperty(cx: PJSContext; obj: PJSObject; name: PAnsiChar; alias: PAnsiChar): JSBool; cdecl; external libName ;
 function JS_BufferIsCompilableUnit(cx: PJSContext; obj: PJSObject; bytes: PAnsiChar; length: size_t): JSBool; cdecl; external libName ;
