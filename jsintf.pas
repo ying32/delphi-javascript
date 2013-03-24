@@ -1865,7 +1865,7 @@ var
   a: TCustomAttribute;
   exclude: boolean;
   clFlags: TJSClassFlagAttributes;
-  defaultCtor: TRttiMethod;
+  defaultCtorSimple, defaultCtor: TRttiMethod;
 
   clctx: TRttiContext;
   clt: TRttiType;
@@ -1949,6 +1949,8 @@ begin
   FClass_fields := nil;
   FConsts := nil;
   defaultCtor := nil;
+  defaultCtorSimple := nil;
+  FJSCtor := nil;
 
   Fctx := TRttiContext.Create;
   FRttiType := Fctx.GetType(AClass);
@@ -1998,6 +2000,11 @@ begin
     then
     begin
       defaultCtor := m;
+    end
+    else if m.IsConstructor and (Length(m.GetParameters) = 0)
+    then
+    begin
+      defaultCtorSimple := m;
     end;
 
     if (m.parent <> FRttiType) and (not(cfaInheritedMethods in clFlags)) then
@@ -2028,6 +2035,10 @@ begin
   // Set default CTOR for TComponent parents
   if FJSCtor = nil then
     FJSCtor := defaultCtor;
+
+  //if FJSCtor = nil then
+  //  FJSCtor := defaultCtorSimple; // fallback to TObject.Create
+
 
   // Support only integer indexed properties
 {$IF CompilerVersion >= 23}
