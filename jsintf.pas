@@ -634,7 +634,7 @@ begin
 {$ENDIF}
 
   fstackSize := 8192;
-  frt := JS_NewRuntime(1 * 1024 * 1024);//MaxMemory);
+  frt := JS_NewRuntime(MaxMemory);
 
   fcx := JS_NewContext(frt, fstackSize);
   JS_SetRuntimePrivate(frt, self);
