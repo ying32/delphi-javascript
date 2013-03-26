@@ -6,7 +6,7 @@ uses SysUtils, Windows;
 const
 
 {$ifdef cpux64}
-    LibName =  'js64d.dll';
+    LibName =  'js64.dll';
 {$else}
     LibName =  'js32.dll';
 {$endif}
