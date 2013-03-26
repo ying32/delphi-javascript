@@ -1448,7 +1448,7 @@ function JS_CALLEE(cx: PJSContext; vp: pjsval): jsval;inline;
 function JS_ARGV(cx: PJSContext; vp: pjsval): jsval;inline;
 function JS_ARGV_PTR(cx: PJSContext; vp: pjsval): pjsval;inline;
 function JS_RVAL(cx: PJSContext; vp: pjsval): jsval;inline;
-procedure JS_SET_RVAL(cx: PJSContext; vp: pjsval; v: jsval) {$ifndef debug}inline{$endif};
+procedure JS_SET_RVAL(cx: PJSContext; vp: pjsval; v: jsval) {$ifndef debug};inline{$endif};
 
 function JS_THIS(cx: PJSContext; vp: pjsval): jsval;
   //        ((vp)[0])
@@ -1569,7 +1569,7 @@ begin
     result.asBits := uint64(uint32(b)) or JSVAL_SHIFTED_TAG_BOOLEAN;
 end;
 
-function JSVAL_TO_OBJECT_IMPL(l: jsval_layout): PJSObject {$ifndef debug}inline{$endif};
+function JSVAL_TO_OBJECT_IMPL(l: jsval_layout): PJSObject {$ifndef debug};inline{$endif};
 var
   ptrBits: uint64;
 begin
@@ -1580,21 +1580,21 @@ begin
     result := PJSObject(ptrBits);
 end;
 
-function JSVAL_TO_INT32_IMPL(l: jsval_layout): int32 {$ifndef debug}inline{$endif};
+function JSVAL_TO_INT32_IMPL(l: jsval_layout): int32 {$ifndef debug};inline{$endif};
 begin
 
     //JS_ASSERT(obj);
     result := int32(l.asBits);
 end;
 
-function JSVAL_TO_STRING_IMPL(l: jsval_layout): PJSString {$ifndef debug}inline{$endif};
+function JSVAL_TO_STRING_IMPL(l: jsval_layout): PJSString {$ifndef debug};inline{$endif};
 begin
 
     //JS_ASSERT(obj);
     result := PJSString(l.asBits and JSVAL_PAYLOAD_MASK);
 end;
 
-function JSVAL_TO_BOOLEAN_IMPL(l: jsval_layout): JSBool {$ifndef debug}inline{$endif};
+function JSVAL_TO_BOOLEAN_IMPL(l: jsval_layout): JSBool {$ifndef debug};inline{$endif};
 begin
 
     //JS_ASSERT(obj);
@@ -1722,28 +1722,28 @@ end;
 
 
 
-function JSVAL_TO_BOOLEAN_IMPL(l: jsval_layout): JSBool {$ifndef debug}inline{$endif};
+function JSVAL_TO_BOOLEAN_IMPL(l: jsval_layout): JSBool {$ifndef debug};inline{$endif};
 begin
 
     //JS_ASSERT(obj);
     result := l.payload.boo;
 end;
 
-function JSVAL_TO_OBJECT_IMPL(l: jsval_layout): PJSObject {$ifndef debug}inline{$endif};
+function JSVAL_TO_OBJECT_IMPL(l: jsval_layout): PJSObject {$ifndef debug};inline{$endif};
 begin
 
     //JS_ASSERT(obj);
     result := l.payload.obj;
 end;
 
-function JSVAL_TO_INT32_IMPL(l: jsval_layout): int32 {$ifndef debug}inline{$endif};
+function JSVAL_TO_INT32_IMPL(l: jsval_layout): int32 {$ifndef debug};inline{$endif};
 begin
 
     //JS_ASSERT(obj);
     result := l.payload.i32;
 end;
 
-function JSVAL_TO_STRING_IMPL(l: jsval_layout): PJSString {$ifndef debug}inline{$endif};
+function JSVAL_TO_STRING_IMPL(l: jsval_layout): PJSString {$ifndef debug};inline{$endif};
 begin
 
     //JS_ASSERT(obj);
@@ -2022,7 +2022,7 @@ var
   LOldNotifyHook, LOldFailureHook: TDelayedLoadHook;
   test : string;
 
-function ImportName(const AProc: TDelayLoadProc): String {$ifndef debug}inline{$endif};
+function ImportName(const AProc: TDelayLoadProc): String {$ifndef debug};inline{$endif};
 begin
   if AProc.fImportByName then
     Result := AProc.szProcName
