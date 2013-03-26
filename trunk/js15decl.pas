@@ -964,7 +964,7 @@ function JS_NewUCStringCopyN(cx: PJSContext; s: pjschar; n: size_t): PJSString; 
 function JS_NewUCStringCopyZ(cx: PJSContext; s: pjschar): PJSString; cdecl; external libName ;
 function JS_Now: int64; cdecl; external libName ;
 function JS_ObjectIsFunction(cx: PJSContext; obj: PJSObject): JSBool; cdecl; external libName ;
-function JS_PropertyStub(cx: PJSContext; obj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; external libName ;
+function  JS_PropertyStub(cx: PJSContext; obj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; external libName ;
 function JS_realloc(cx: PJSContext; p: Pointer; nbytes: size_t): Pointer; cdecl; external libName ;
 function JS_RemoveExternalStringFinalizer(finalizer: JSStringFinalizeOp): intN; cdecl; external libName ;
 function JS_RemoveRoot(cx: PJSContext; rp: Pointer): JSBool; cdecl; external libName ;
