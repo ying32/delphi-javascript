@@ -13,7 +13,7 @@ Type
       extent: integer;
       start: integer;
       end_: integer;
-      script: PJSScript;
+      script: PJSObject;
       breakPoints: TJSbreakPoints;
     public
       constructor Create;
@@ -25,7 +25,7 @@ Type
       line: integer;
     end;
 
-    TJSDebugScripts = TObjectDictionary<PJSScript, TJSDebugScript>;
+    TJSDebugScripts = TObjectDictionary<PJSObject, TJSDebugScript>;
     TJSDebugBreakpoints = TObjectList<TJSBreakPoint>;
 
   TJSDebugServer = class
@@ -34,7 +34,7 @@ Type
     FPipeHandle: THandle;
     FMode: TJSDebuggerMode;
     FFrameStop: PJSStackFrame;
-    FlastStop: PJSScript;
+    FlastStop: PJSObject;
     FlastLine: Integer;
     Fdepth: integer;
     FCurDepth: integer;
@@ -50,17 +50,17 @@ Type
   protected
     // JS callbacks
     //called at every execution point
-    class function _JSTrapHandler(cx: PJSContext; Script: PJSScript; pc: pjsbytecode; rval: pjsval;
+    class function _JSTrapHandler(cx: PJSContext; Script: PJSObject; pc: pjsbytecode; rval: pjsval;
       closure: pointer): JSTrapStatus; cdecl; static;
 
-    class function _JSBreakHandler(cx: PJSContext; Script: PJSScript; pc: pjsbytecode; rval: pjsval;
+    class function _JSBreakHandler(cx: PJSContext; Script: PJSObject; pc: pjsbytecode; rval: pjsval;
       closure: pointer): JSTrapStatus; cdecl; static;
 
     class procedure _JSNewScriptHook(cx: PJSContext; filename: PAnsiChar; // * URL of script
       lineno: uintN; // * first line */
-      Script: PJSScript; fun: PJSFunction; callerdata: pointer); cdecl; static;
+      Script: PJSObject; fun: PJSFunction; callerdata: pointer); cdecl; static;
     // called just before script destruction
-    class procedure _JSDestroyScriptHook(cx: PJSContext; Script: PJSScript; callerdata: pointer); cdecl; static;
+    class procedure _JSDestroyScriptHook(cx: PJSContext; Script: PJSObject; callerdata: pointer); cdecl; static;
     class function _JSDebugErrorHook(cx: PJSContext; const _message: PAnsiChar; report: PJSErrorReport;
       closure: pointer): JSBool; cdecl; static;
 
@@ -69,9 +69,9 @@ Type
       closure: pointer): pointer; cdecl; static;
 
     function Debug(cx: PJSContext; rval: pjsval; fpa: PJSStackFrame): JSTrapStatus;
-    function SetBreakPoint(script: PJSScript; lineno: uintN): integer; overload;
-    function ClearBreakPoint(script: PJSScript; lineno: uintN): boolean;
-    procedure ClearBreakPoints(script: PJSScript);
+    function SetBreakPoint(script: PJSObject; lineno: uintN): integer; overload;
+    function ClearBreakPoint(script: PJSObject; lineno: uintN): boolean;
+    procedure ClearBreakPoints(script: PJSObject);
   public
     constructor Create(AContext: PJSContext);
     destructor Destroy; override;
@@ -119,7 +119,7 @@ end;
 
 { TJSDebugServer }
 
-function TJSDebugServer.ClearBreakPoint(script: PJSScript; lineno: uintN): boolean;
+function TJSDebugServer.ClearBreakPoint(script: PJSObject; lineno: uintN): boolean;
 var
   pc: pjsbytecode;
   t: JSTrapHandler;
@@ -149,7 +149,7 @@ begin
 
 end;
 
-procedure TJSDebugServer.ClearBreakPoints(script: PJSScript);
+procedure TJSDebugServer.ClearBreakPoints(script: PJSObject);
 begin
   JS_ClearScriptTraps(FContext, script);
 
@@ -181,7 +181,7 @@ function TJSDebugServer.Debug(cx: PJSContext; rval: pjsval; fpa: PJSStackFrame):
 var
 //  Action: TJSDebuggerAction;
   line, cmd: string;
-  script: PJSScript;
+  script: PJSObject;
   newLineNo, lineNo: integer;
   pc: pjsbytecode;
   scriptName, extra: string;
@@ -207,10 +207,10 @@ var
 
   end;
 
-  function getScript(fileName: string; lineNo: integer = 0): PJSScript;
+  function getScript(fileName: string; lineNo: integer = 0): PJSObject;
   var
     value: TJSDebugScript;
-    top_script: PJSScript;
+    top_script: PJSObject;
   begin
      top_script := nil;
      fileName := stringReplace(fileName, '"', '', [rfReplaceAll]);
@@ -326,7 +326,7 @@ begin
                if JS_EvaluateUCScript(cx, JS_GetGlobalObject(cx), PWideChar(extra), length(extra), '<debug eval>', 1, @eval) <> js_true then
                   FNamedPipe.Write(format('ERROR,EVALUATE "%s"', [extra] ))
                else
-                  FNamedPipe.Write(format('OK,EVALUATE "%s"="%s"', [extra,JSStringToString(JS_ValueToString(cx, eval))] ));
+                  FNamedPipe.Write(format('OK,EVALUATE "%s"="%s"', [extra,JSStringToString(cx, JS_ValueToString(cx, eval))] ));
 {            if(fp <> nil) then
             begin
                if JS_EvaluateUCInStackFrame(cx, fp, PWideChar(extra), length(extra), '<debug eval>', 1, @eval) <> js_true then
@@ -365,7 +365,7 @@ begin
   inherited;
 end;
 
-function TJSDebugServer.SetBreakPoint(script: PJSScript; lineno: uintN): integer;
+function TJSDebugServer.SetBreakPoint(script: PJSObject; lineno: uintN): integer;
 var
   pc: pjsbytecode;
   value: TJSDebugScript;
@@ -395,7 +395,7 @@ begin
 
 end;
 
-class function TJSDebugServer._JSBreakHandler(cx: PJSContext; Script: PJSScript; pc: pjsbytecode; rval: pjsval;
+class function TJSDebugServer._JSBreakHandler(cx: PJSContext; Script: PJSObject; pc: pjsbytecode; rval: pjsval;
   closure: pointer): JSTrapStatus;
 var
   scr: TJSDebugServer;
@@ -424,7 +424,7 @@ begin
 
 end;
 
-class procedure TJSDebugServer._JSDestroyScriptHook(cx: PJSContext; Script: PJSScript; callerdata: pointer);
+class procedure TJSDebugServer._JSDestroyScriptHook(cx: PJSContext; Script: PJSObject; callerdata: pointer);
 var
   scr: TJSDebugServer;
 begin
@@ -440,7 +440,7 @@ class function TJSDebugServer._JSInterpreterHook(cx: PJSContext; fp: PJSStackFra
   closure: pointer): pointer;
 var
   scr: TJSDebugServer;
-  s: PJSScript;
+  s: PJSObject;
   pc: pjsbytecode;
   line: Integer;
   scriptName: PAnsiChar;
@@ -497,7 +497,7 @@ begin
 
 end;
 
-class procedure TJSDebugServer._JSNewScriptHook(cx: PJSContext; filename: PAnsiChar; lineno: uintN; Script: PJSScript;
+class procedure TJSDebugServer._JSNewScriptHook(cx: PJSContext; filename: PAnsiChar; lineno: uintN; Script: PJSObject;
   fun: PJSFunction; callerdata: pointer);
 var
   scr: TJSDebugServer;
@@ -523,7 +523,7 @@ begin
 
 end;
 
-class function TJSDebugServer._JSTrapHandler(cx: PJSContext; Script: PJSScript; pc: pjsbytecode; rval: pjsval;
+class function TJSDebugServer._JSTrapHandler(cx: PJSContext; Script: PJSObject; pc: pjsbytecode; rval: pjsval;
   closure: pointer): JSTrapStatus;
 var
   str: PJSString;
