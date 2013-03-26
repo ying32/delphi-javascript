@@ -202,6 +202,7 @@ type
     procedure FreeJSObject(Engine: TJSEngine);
     function JSEngine: TJSEngine; overload;
     property JSObject: PJSObject read Fjsobj;
+    property JSDelphiObject: TJSObject read FJSObject;
     property nativeObj: TObject read FNativeObj;
     property ClassProto: TJSClassProto read FClassProto;
 
