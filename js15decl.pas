@@ -4,14 +4,39 @@ interface
 uses SysUtils, Windows;
 
 const
-{.$define MOZILLA_1_8_BRANCH}
+
 {$ifdef cpux64}
-    LibName =  'js64.dll';
+    LibName =  'js64-185.dll';
 {$else}
-    LibName =  'js32.dll';
+    LibName =  'js32-185.dll';
 {$endif}
 
 const
+
+{$ifdef cpux64}
+  JSVAL_TAG_SHIFT                = 47;
+{$endif}
+
+  // JSVALUE_TYPE
+  JSVAL_TYPE_DOUBLE              = $00;
+  JSVAL_TYPE_INT32               = $01;
+  JSVAL_TYPE_UNDEFINED           = $02;
+  JSVAL_TYPE_BOOLEAN             = $03;
+  JSVAL_TYPE_MAGIC               = $04;
+  JSVAL_TYPE_STRING              = $05;
+  JSVAL_TYPE_NULL                = $06;
+  JSVAL_TYPE_OBJECT              = $07;
+
+  //* The below types never appear in a jsval; they are only used in tracing. */
+
+  JSVAL_TYPE_NONFUNOBJ           = $57;
+  JSVAL_TYPE_FUNOBJ              = $67;
+
+  JSVAL_TYPE_STRORNULL           = $97;
+  JSVAL_TYPE_OBJORNULL           = $98;
+
+  JSVAL_TYPE_BOXED               = $99;
+
   JSCLASS_RESERVED_SLOTS_SHIFT  = 8;
   JSCLASS_RESERVED_SLOTS_MASK   = 255;
   JSCLASS_RESERVED_SLOTS_WIDTH  = 8;
@@ -41,6 +66,9 @@ const
   JSCLASS_IS_EXTENDED       = 1 shl (JSCLASS_HIGH_FLAGS_SHIFT+0);
   JSCLASS_IS_ANONYMOUS      = (1 shl (JSCLASS_HIGH_FLAGS_SHIFT+1));
   JSCLASS_IS_GLOBAL         = (1 shl (JSCLASS_HIGH_FLAGS_SHIFT+2));
+
+
+  JSCLASS_GLOBAL_FLAGS      = (JSCLASS_IS_GLOBAL);// or JSCLASS_HAS_RESERVED_SLOTS(JSRESERVED_GLOBAL_THIS + JSRESERVED_GLOBAL_SLOTS_COUNT));
 
   (* May be private *)
   JS_MAP_GCROOT_NEXT = 0;
@@ -73,11 +101,11 @@ const
   JSPROP_ENUMERATE = $01;
   JSPROP_READONLY = $02;
   JSPROP_PERMANENT = $04;
-  JSPROP_EXPORTED = $08;
   JSPROP_GETTER = $10;
   JSPROP_SETTER = $20;
   JSPROP_SHARED = $40;
   JSPROP_INDEX = $80;
+  JSPROP_SHORTID = $100;
 
   (* Function attributes *)
   JSFUN_LAMBDA = $08;
@@ -128,7 +156,17 @@ const
 
 type
   (* These are OK as enums, since the values are sequential from 0 *)
-  JSType = (JSTYPE_VOID,JSTYPE_OBJECT,JSTYPE_FUNCTION,JSTYPE_STRING,JSTYPE_NUMBER,JSTYPE_BOOLEAN);
+  JSType = (
+    JSTYPE_VOID,                // undefined */
+    JSTYPE_OBJECT,              // object */
+    JSTYPE_FUNCTION,            // function */
+    JSTYPE_STRING,              // string */
+    JSTYPE_NUMBER,              // number */
+    JSTYPE_BOOLEAN,             // boolean */
+    JSTYPE_NULL,                // null */
+    JSTYPE_XML,                 // xml object */
+    JSTYPE_LIMIT
+  );
   JSIterateOp = (JSENUMERATE_INIT, JSENUMERATE_NEXT, JSENUMERATE_DESTROY);
   JSGCStatus = (JSGC_BEGIN, JSGC_END, JSGC_MARK_END, JSGC_FINALIZE_END);
 
@@ -353,7 +391,7 @@ JSOP_LIMIT
   (* These need to move out as constants, but they're also "types" in that one or more APIs want a
    * specific range of values.  These are not sequential values, and I don't really know a decent
    * balance between the two situations.  (See above commented const declaration. *)
-  JSAccessMode = (JSACC_PROTO, JSACC_PARENT, JSACC_IMPORT, JSACC_WATCH, JSACC_READ, JSACC_WRITE, JSACC_LIMIT);
+  JSAccessMode = (JSACC_PROTO = 0, JSACC_PARENT = 1, JSACC_WATCH =3, JSACC_READ = 4, JSACC_WRITE = 8, JSACC_LIMIT);
   JSExecPart = (JSEXEC_PROLOG, JSEXEC_MAIN);
   JSTrapStatus = (JSTRAP_ERROR = 0, JSTRAP_CONTINUE = 1, JSTRAP_RETURN = 3, JSTRAP_THROW, JSTRAP_LIMIT);
 
@@ -403,18 +441,170 @@ JSOP_LIMIT
   JSHashNumber = uint32;
   JSXDRMode = uint32;
 
-  jschar = JSUint16;
+  jschar = WideChar;
   jsint = JSInt32;
   jsuint = JSUint32;
   jsdouble = JSFloat64;
-  jsval = JSWord;
 
-  jsid = JSWord;
+  pjschar = PWideChar;
+  jsid = size_t;
+
+  TJSContextType = uint8;
+  TJSScriptType = uint8;
+  TJSRuntimeType = uint8;
+  TJSObjectType = uint8;
+  TJSPrincipalsType = uint8;
+
+
+  PJSString = ^JSString;
+  TJSString0 = record
+    case integer of
+      0: (chars: pjschar);
+      1: (left: PJSString);
+  end;
+
+  TJSString1 = record
+    case integer of
+      0: (right: pjsstring);
+      1: (base: PJSString);
+      2: (capacity: size_t);
+  end;
+  TJSString2 = record
+    case integer of
+      0: (parent: pjsstring);
+      1: (reserved: size_t);
+  end;
+
+  TJSString3 = record
+    u0: TJSString1;
+    u1: TJSString2;
+  end;
+
+  JSString = record
+    lengthAndFlags: size_t;
+    u: TJSString0;
+
+    case integer of
+     0: (inlineStorage: array[0..3] of jschar);
+     1: (s: TJSString3);
+     2: (externalStringType: size_t);
+  end;
+
+  JSIdArray = record
+    length: jsint;
+    vector: jsid;
+  end;
+
+  PPJSString = ^PJSString;
+  PJSObject = ^TJSObjectType; // ^JSObject;
+  PPJSObject = ^PJSObject;
+
+{$ifdef cpux64}
+  TJSValueTag = (
+//const
+    JSVAL_TAG_MAX_DOUBLE           = $1FFF0,
+    JSVAL_TAG_INT32                = uint32(JSVAL_TAG_MAX_DOUBLE) or JSVAL_TYPE_INT32,
+    JSVAL_TAG_UNDEFINED            = uint32(JSVAL_TAG_MAX_DOUBLE) or JSVAL_TYPE_UNDEFINED,
+    JSVAL_TAG_STRING               = uint32(JSVAL_TAG_MAX_DOUBLE)  or JSVAL_TYPE_STRING,
+    JSVAL_TAG_BOOLEAN              = uint32(JSVAL_TAG_MAX_DOUBLE)  or JSVAL_TYPE_BOOLEAN,
+    JSVAL_TAG_MAGIC                = uint32(JSVAL_TAG_MAX_DOUBLE) or JSVAL_TYPE_MAGIC,
+    JSVAL_TAG_NULL                 = uint32(JSVAL_TAG_MAX_DOUBLE) or JSVAL_TYPE_NULL,
+    JSVAL_TAG_OBJECT               = uint32(JSVAL_TAG_MAX_DOUBLE) or JSVAL_TYPE_OBJECT
+  );
+
+Const
+  JSVAL_PAYLOAD_MASK:uint64 =           $00007FFFFFFFFFFF;
+  JSVAL_TAG_MASK:uint64 =               $FFFF800000000000;
+
+  JSVAL_SHIFTED_TAG_MAX_DOUBLE   = (uint64(JSVAL_TAG_MAX_DOUBLE) shl JSVAL_TAG_SHIFT) or $FFFFFFFF;
+  JSVAL_SHIFTED_TAG_INT32        = (uint64(JSVAL_TAG_INT32)      shl JSVAL_TAG_SHIFT);
+  JSVAL_SHIFTED_TAG_UNDEFINED    = (uint64(JSVAL_TAG_UNDEFINED)  shl JSVAL_TAG_SHIFT);
+  JSVAL_SHIFTED_TAG_STRING       = (uint64(JSVAL_TAG_STRING)     shl JSVAL_TAG_SHIFT);
+  JSVAL_SHIFTED_TAG_BOOLEAN      = (uint64(JSVAL_TAG_BOOLEAN)    shl JSVAL_TAG_SHIFT);
+  JSVAL_SHIFTED_TAG_MAGIC        = (uint64(JSVAL_TAG_MAGIC)      shl JSVAL_TAG_SHIFT);
+  JSVAL_SHIFTED_TAG_NULL         = (uint64(JSVAL_TAG_NULL)       shl JSVAL_TAG_SHIFT);
+  JSVAL_SHIFTED_TAG_OBJECT       = (uint64(JSVAL_TAG_OBJECT)     shl JSVAL_TAG_SHIFT);
+
+  JSVAL_UPPER_EXCL_SHIFTED_TAG_OF_PRIMITIVE_SET    = JSVAL_SHIFTED_TAG_OBJECT;
+{$else}
+  TJSValueTag = (
+//const
+    JSVAL_TAG_CLEAR                = $FFFF0000,
+    JSVAL_TAG_INT32                = uint32(JSVAL_TAG_CLEAR) or JSVAL_TYPE_INT32,
+    JSVAL_TAG_UNDEFINED            = uint32(JSVAL_TAG_CLEAR) or JSVAL_TYPE_UNDEFINED,
+    JSVAL_TAG_STRING               = uint32(JSVAL_TAG_CLEAR) or JSVAL_TYPE_STRING,
+    JSVAL_TAG_BOOLEAN              = uint32(JSVAL_TAG_CLEAR) or JSVAL_TYPE_BOOLEAN,
+    JSVAL_TAG_MAGIC                = uint32(JSVAL_TAG_CLEAR) or JSVAL_TYPE_MAGIC,
+    JSVAL_TAG_NULL                 = uint32(JSVAL_TAG_CLEAR) or JSVAL_TYPE_NULL,
+    JSVAL_TAG_OBJECT               = uint32(JSVAL_TAG_CLEAR) or JSVAL_TYPE_OBJECT
+  );
+{$endif}
+
+type
+ JSWhyMagic = (
+    JS_ARRAY_HOLE,               //* a hole in a dense array */
+    JS_ARGS_HOLE,                //* a hole in the args object's array */
+    JS_NATIVE_ENUMERATE,         //* indicates that a custom enumerate hook forwarded
+                                 // * to js_Enumerate, which really means the object can be
+                                 // * enumerated like a native object. */
+    JS_NO_ITER_VALUE,            //* there is not a pending iterator value */
+    JS_GENERATOR_CLOSING,        //* exception value thrown when closing a generator */
+    JS_NO_CONSTANT,              //* compiler sentinel value */
+    JS_THIS_POISON,              //* used in debug builds to catch tracing errors */
+    JS_ARG_POISON,               //* used in debug builds to catch tracing errors */
+    JS_SERIALIZE_NO_NODE,        //* an empty subnode in the AST serializer */
+    JS_GENERIC_MAGIC             //* for local use */
+  );
+
+{$ifdef CPUX64}
+  Tpayload = record
+    case Integer of
+      0: (i32: int32;);
+      1: (u32: uint32;);
+      2: (why: JSWhyMagic;);
+      3: (word:jsuword;);
+  end;
+
+
+  jsval_layout = record
+    case integer of
+      0: (asBits: UInt64);
+      1: (payload: Tpayload;
+        //  tag: TJSValueTag;
+         );
+      2: (asDouble: double;);
+      3: (asPtr: pointer;);
+  end;
+{$else}
+  Tpayload = record
+    case Integer of
+      0: (i32: int32;);
+      1: (u32: uint32;);
+      2: (boo: JSBool;);
+      3: (str: PJSString ; );
+      4: (obj: PJSObject;);
+      5: (ptr: pointer;);
+      6: (why: JSWhyMagic;);
+      7: (word:jsuword;);
+  end;
+
+
+  jsval_layout = record
+    case integer of
+      0: (asBits: UInt64);
+      1: (payload: Tpayload;
+          tag: TJSValueTag;
+         );
+      2: (asDouble: double;);
+      3: (asPtr: pointer;);
+  end;
+{$endif}
+  jsval = jsval_layout;
+
   jsrefcount = JSInt32;
   jsbytecode = uint8;
   jsatomid = uint32;
 
-  pjschar = PWideChar;
   ppjschar = ^pjschar;
   pjsint = ^jsint;
   pjsuint = ^jsuint;
@@ -431,35 +621,28 @@ const
   JS_TRUE: JSIntn = 1;
   JS_FALSE: JSIntn = 0;
 
-//#define INT_TO_JSVAL(i)         (((jsval)(i) << 1) | JSVAL_INT)
-//#define JSVAL_INT_POW2(n)       ((jsval)1 << (n))
-//#define JSVAL_VOID              INT_TO_JSVAL(0 - JSVAL_INT_POW2(30))
-//{$ifdef MOZILLA_1_8_BRANCH}
-  JSVAL_VOID: jsval = ((0 - jsval(1 shl 30) ) shl 1) or JSVAL_INT;
-//{$else}
-//  JSVAL_VOID: jsval = 0 - $40000000;
-//{$endif}
-  JSVAL_NULL: jsval = 0;
-  JSVAL_ZERO: jsval = 0;
-  JSVAL_ONE: jsval = 1;
-  JSVAL_FALSE: jsval = 0;
-  JSVAL_TRUE: jsval = 1;
+  JSVAL_LOWER_INCL_TAG_OF_OBJ_OR_NULL_SET         = JSVAL_TAG_NULL ;
+  JSVAL_UPPER_EXCL_TAG_OF_PRIMITIVE_SET           = JSVAL_TAG_OBJECT;
+  JSVAL_UPPER_INCL_TAG_OF_NUMBER_SET              = JSVAL_TAG_INT32;
+  JSVAL_LOWER_INCL_TAG_OF_GCTHING_SET             = JSVAL_TAG_STRING;
+
+//     ((((uint64)(uint32)(tag)) << 32) | (uint32)(payload))
+var
+  JSVAL_VOID: jsval = (asBits:  uint64(uint64(JSVAL_TAG_UNDEFINED) shl 32 ) or 0);
+  JSVAL_NULL: jsval = (asBits: uint64(uint64(JSVAL_TAG_NULL) shl 32 )or 0);
+  JSVAL_ZERO: jsval = (asBits: uint64(uint64(JSVAL_TAG_INT32) shl 32 ) or 0);
+  JSVAL_ONE: jsval = (asBits: uint64(uint64(JSVAL_TAG_INT32) shl 32 ) or 1);
+  JSVAL_FALSE: jsval = (asBits: uint64(uint64(JSVAL_TAG_BOOLEAN) shl 32 ) or 0);
+  JSVAL_TRUE: jsval = (asBits: uint64(uint64(JSVAL_TAG_BOOLEAN) shl 32 ) or 1);
 
 type
   PFile = ^File;
   (* Some of the following are intended to be opaque pointers, others accessible.  Haven't sorted out which, though. *)
-  TJSContextType = uint8;
-  TJSScriptType = uint8;
-  TJSRuntimeType = uint8;
-  TJSObjectType = uint8;
-  TJSPrincipalsType = uint8;
   PJSClass = ^JSClass;
-  PJSScript = ^TJSScriptType;
-  PJSObject = ^TJSObjectType; // ^JSObject;
+
   PJSContext = ^TJSContextType;
   PJSRuntime = ^TJSRuntimeType;
   PJSErrorReport = ^JSErrorReport;
-  PJSString = ^JSString;
   PJSIdArray = ^JSIdArray;
   PJSPrincipals = ^TJSPrincipalsType;
   PJSFunction = ^JSFunction;
@@ -474,7 +657,7 @@ type
   PJSPropertyDesc = ^JSPropertyDesc;
   PJSPropertyDescArray = ^JSPropertyDescArray;
   PJSScopeProperty = ^JSScopeProperty;
-  PJSStackFrame = ^JSStackFrame;
+  PJSStackFrame = pointer;
   PJSAtom = Pointer; // ^JSAtom
   PPJSAtom = ^PJSAtom;
   PJSObjectMap = ^JSObjectMap;
@@ -487,7 +670,7 @@ type
     callobj: PJSObject;       //lazily created Call object */
     argsobj: PJSObject;       //lazily created arguments object */
     varobj: PJSObject;        //variables object, where vars go */
-    script: PJSScript;        //script being interpreted */
+    script: PJSObject;        //script being interpreted */
     fun: PJSFunction;           //function being called or null */
     thisp: PJSObject;         //"this" pointer if in method */
     argc: uintN;           //actual argument count */
@@ -521,17 +704,17 @@ typedef JSBool
                                   jsbytecode *pc, jsval *rval, void *closure);
 
 }
-  JSTrapHandler = function(cx: PJSContext; script: PJSScript; pc: pjsbytecode; rval: pjsval; closure: pointer): JSTrapStatus; cdecl;
+  JSTrapHandler = function(cx: PJSContext; script: PJSObject; pc: pjsbytecode; rval: pjsval; closure: pointer): JSTrapStatus; cdecl;
   JSWatchPointHandler = function (cx: PJSContext; obj: PJSObject; id, old: jsval; newp: pjsval; closure: pointer): JSBOOL; cdecl;
   JSNewScriptHook = procedure (cx: pJSContext;
                                     filename: PAnsiChar; //* URL of script
                                     lineno: uintN;     //* first line */
-                                    script: Pjsscript;
+                                    script: PJSObject;
                                     fun: PJSFunction;
                                     callerdata: pointer); cdecl;
 
  //* called just before script destruction */
- JSDestroyScriptHook = procedure(cx: pJSContext; script: pjsscript; callerdata: pointer); cdecl;
+ JSDestroyScriptHook = procedure(cx: pJSContext; script: PJSObject; callerdata: pointer); cdecl;
 
  JSSourceHandler = procedure (filename: PAnsiChar; lineno: uintN;
                                     str: pjschar; length: size_t;
@@ -550,16 +733,17 @@ typedef JSBool
 
 
   JSEqualityOp  = function(cx: PJSContext; obj: PJSObject; v: jsval; var bp: JSBool): JSBool; cdecl;
-  JSPropertyOp = function(cx: PJSContext; obj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl;
+  JSPropertyOp = function(cx: PJSContext; obj: PJSObject; id: jsid; vp: pjsval): JSBool; cdecl;
+  JSStrictPropertyOp = function(cx: PJSContext; obj: PJSObject; id: jsid; _strict: jsbool; vp: pjsval): JSBool; cdecl;
   JSNewEnumerateOp = function(cx: PJSContext; obj: PJSObject; enum_op: JSIterateOp; statep: pjsval; idp: pjsid): JSBool; cdecl;
   JSEnumerateOp = function(cx: PJSContext; obj: PJSObject): JSBool; cdecl;
-  JSResolveOp = function(cx: PJSContext; obj: PJSObject; id: jsval): JSBool; cdecl;
+  JSResolveOp = function(cx: PJSContext; obj: PJSObject; id: jsid): JSBool; cdecl;
   JSConvertOp = function(cx: PJSContext; obj: PJSObject; typ: JSType; vp: pjsval): JSBool; cdecl;
   JSFinalizeOp = procedure(cx: PJSContext; obj: PJSObject); cdecl;
 
   JSGetObjectOps = function(cx: PJSContext; clasp: PJSClass): Pointer; cdecl;
-  JSCheckAccessOp = function(cx: PJSContext; obj: PJSObject; id: jsval; mode: JSAccessMode; vp: pjsval): JSBool; cdecl;
-  JSXDRObjectOp = function(xdr: PJSXDRState; var objp: PJSObject): JSBool; cdecl;
+  JSCheckAccessOp = function(cx: PJSContext; obj: PJSObject; id: jsid; mode: JSAccessMode; vp: pjsval): JSBool; cdecl;
+  JSXDRObjectOp = function(xdr: PJSXDRState; objp: PPJSObject): JSBool; cdecl;
   JSHasInstanceOp = function(cx: PJSContext; obj: PJSObject; v: jsval; bp: PJSBool): JSBool; cdecl;
   JSMarkOp = function(cx: PJSContext; obj: PJSObject; arg: Pointer): uint32; cdecl;
   JSNewObjectMapOp = function(cx: PJSContext; nrefs: jsrefcount; ops: PJSObjectOps; clasp: PJSClass; obj: PJSObject): PJSObjectMap; cdecl;
@@ -575,11 +759,12 @@ typedef JSBool
   JSGetRequiredSlotOp = function(cx: PJSContext; obj: PJSObject; slot: uint32): jsval; cdecl;
   JSSetRequiredSlotOp = procedure(cx: PJSContext; obj: PJSObject; slot: uint32; v: jsval); cdecl;
 
-  JSNative = function(cx: PJSContext; obj: PJSObject; argc: uintN; argv: pjsval; rval: pjsval): JSBool; cdecl;
+  JSNative = function(cx: PJSContext; argc: uintN; vp: pjsval): JSBool; cdecl;
+  JSClassInternal = procedure ( ); cdecl;
 
   JSGCCallback = function(cx: PJSContext; status: JSGCStatus): JSBool; cdecl;
   JSGCRootMapFun = function(rp: Pointer; name: PAnsiChar; data: Pointer): intN; cdecl;
-  JSBranchCallback = function(cx: PJSContext; script: PJSScript): JSBool; cdecl;
+  JSBranchCallback = function(cx: PJSContext; script: PJSObject): JSBool; cdecl;
   JSErrorReporter = procedure(cx: PJSContext; message: PAnsiChar; report: PJSErrorReport); cdecl;
   JSLocaleToUpperCase = function(cx: PJSContext; src: PJSString; rval: pjsval): JSBool; cdecl;
   JSLocaleToLowerCase = function(cx: PJSContext; src: PJSString; rval: pjsval): JSBool; cdecl;
@@ -613,7 +798,7 @@ typedef JSBool
     nrefs: jsrefcount;
     obj: PJSObject;
     native: JSNative;
-    script: PJSScript;
+    script: PJSObject;
     nargs: uint16;
     extra: uint16;
     nvars: uint16;
@@ -626,15 +811,9 @@ typedef JSBool
   JSFunctionSpec = record
     name: PAnsiChar;
     call: JSNative;
-{$ifdef MOZILLA_1_8_BRANCH}
-    nargs: uint8;
-    flags: uint8;
-    extra: uint16;
-{$else}
     nargs: uint16;
     flags: uint16;
     extra: uint32;
-{$endif}
   end;
 //  TJSFunctionsSpecArray = array of JSFunctionSpec;
 
@@ -679,16 +858,6 @@ typedef JSBool
     setRequiredSlot: JSSetRequiredSlotOp;
   end;
 
-  JSString = record
-    length: size_t;
-    chars: pjschar;
-  end;
-
-  JSIdArray = record
-    length: jsint;
-    vector: jsid;
-  end;
-
   JSLocaleCallbacks = record
     localeToUpperCase: JSLocaleToUpperCase;
     localeToLowerCase: JSLocaleToLowerCase;
@@ -712,7 +881,7 @@ typedef JSBool
     tinyid: int8;
     flags: uint8;
     getter: JSPropertyOp;
-    setter: JSPropertyOp;
+    setter: JSStrictPropertyOp;
   end;
   TJSPropertySpecArray = array of JSPropertySpec;
 
@@ -744,27 +913,29 @@ typedef JSBool
 
   JSClass =  record
     name: PAnsiChar;
-    flags: LongWord;
+    flags: UInt32;
 
   (* Mandatory non-null function pointer members. *)
     addProperty: JSPropertyOp;
     delProperty: JSPropertyOp;
     getProperty: JSPropertyOp;
-    setProperty: JSPropertyOp;
+    setProperty: JSStrictPropertyOp;
     enumerate: JSEnumerateOp;
     resolve: JSResolveOp;
     convert: JSConvertOp;
     finalize: JSFinalizeOp;
 
-  (* Optionally non-null members start here. *)
-    getObjectOps: JSGetObjectOps;
+    //* Optionally non-null members start here. */
+    reserved0: JSClassInternal;
     checkAccess: JSCheckAccessOp;
-    call: JSNative;                (* Assign this if the object is callable (ie a function) *)
-    construct: JSNative;          (* Constructor *)
+    call,
+    construct: JSNative;
     xdrObject: JSXDRObjectOp;
     hasInstance: JSHasInstanceOp;
     mark: JSMarkOp;
-    spare: jsword;
+
+    reserved1: JSClassInternal;
+    reserved: array[0..18] of pointer;
   end;
 
   JSExtendedClass = record
@@ -808,10 +979,29 @@ function  JS_ReportWarning(cx: PJSContext; format: PAnsiChar; arglist: va_list):
 // function wvsprintf(Output: PAnsiChar; Format: PAnsiChar; arglist: va_list): Integer; stdcall;
 procedure JS_ReportError(cx: PJSContext; format: PAnsiChar; arglist: va_list); cdecl; external libName ;
 
+function JS_ComputeThis(cx: PJSContext; vp: pjsval):jsval; cdecl; external libName ;
 function JS_AddExternalStringFinalizer(finalizer: JSStringFinalizeOp): intN; cdecl; external libName ;
-function JS_AddNamedRoot(cx: PJSContext; rp: Pointer; name: PAnsiChar): JSBool; cdecl; external libName ;
-function JS_AddNamedRootRT(rt: PJSRuntime; rp: Pointer; name: PAnsiChar): JSBool; cdecl; external libName ;
-function JS_AddRoot(cx: PJSContext; rp: Pointer): JSBool; cdecl; external libName ;
+
+function JS_AddValueRoot(cx: PJSContext; vp: pjsval): JSBool; cdecl; external libName ;
+function JS_AddStringRoot(cx: PJSContext; vp: PPJSString): JSBool; cdecl; external libName ;
+function JS_AddObjectRoot(cx: PJSContext; vp: PPJSObject): JSBool; cdecl; external libName ;
+function JS_AddGCThingRoot(cx: PJSContext; vp: PPointer): JSBool; cdecl; external libName ;
+
+function JS_AddNamedValueRoot(cx: PJSContext; vp: pjsval; name: PAnsiChar): JSBool; cdecl; external libName ;
+function JS_AddNamedStringRoot(cx: PJSContext; vp: PPJSString; name: PAnsiChar): JSBool; cdecl; external libName ;
+function JS_AddNamedObjectRoot(cx: PJSContext; vp: PPJSObject; name: PAnsiChar): JSBool; cdecl; external libName ;
+function JS_AddNamedGCThingRoot(cx: PJSContext; vp: PPointer; name: PAnsiChar): JSBool; cdecl; external libName ;
+
+function JS_RemoveValueRoot(cx: PJSContext; vp: pjsval): JSBool; cdecl; external libName ;
+function JS_RemoveStringRoot(cx: PJSContext; vp: PPJSString): JSBool; cdecl; external libName ;
+function JS_RemoveObjectRoot(cx: PJSContext; vp: PPJSObject): JSBool; cdecl; external libName ;
+function JS_RemoveGCThingRoot(cx: PJSContext; vp: PPointer): JSBool; cdecl; external libName ;
+
+
+//function JS_AddNamedRoot(cx: PJSContext; rp: Pointer; name: PAnsiChar): JSBool; cdecl; external libName ;
+//function JS_AddNamedRootRT(rt: PJSRuntime; rp: Pointer; name: PAnsiChar): JSBool; cdecl; external libName ;
+//function JS_AddRoot(cx: PJSContext; rp: Pointer): JSBool; cdecl; external libName ;
+
 
 procedure JS_ForgetLocalRoot(cx: PJSContext; thing: pointer); cdecl; external libName ;
 function JS_EnterLocalRootScope(cx: PJSContext): JSBool; cdecl; external libName ;
@@ -827,19 +1017,7 @@ function JS_CallFunctionValue(cx: PJSContext; obj: PJSObject; fval: jsval; argc:
 function JS_CheckAccess(cx: PJSContext; obj: PJSObject; id: jsid; mode: JSAccessMode; vp: pjsval; attrsp: puintN): JSBool; cdecl; external libName ;
 function JS_CloneFunctionObject(cx: PJSContext; funobj: PJSObject; parent: PJSObject): PJSObject; cdecl; external libName ;
 function JS_CompareStrings(str1: PJSString; str2: PJSString): intN; cdecl; external libName ;
-function JS_CompileFile(cx: PJSContext; obj: PJSObject; filename: PAnsiChar): PJSScript; cdecl; external libName ;
-function JS_CompileFileHandle(cx: PJSContext; obj: PJSObject; filename: PAnsiChar; fh: PFILE): PJSScript; cdecl; external libName ;
-function JS_CompileFileHandleForPrincipals(cx: PJSContext; obj: PJSObject; filename: PAnsiChar; fh: PFILE; principals: PJSPrincipals): PJSScript; cdecl; external libName ;
-function JS_CompileFunction(cx: PJSContext; obj: PJSObject; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
-function JS_CompileFunctionForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
-function JS_CompileScript(cx: PJSContext; obj: PJSObject; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSScript; cdecl; external libName ;
-function JS_CompileScriptForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSScript; cdecl; external libName ;
-function JS_CompileUCFunction(cx: PJSContext; obj: PJSObject; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
-function JS_CompileUCFunctionForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
-//--function JS_CompileUCFunctionUC(cx: PJSContext; obj: PJSObject; name: pjschar; namelen: size_t; nargs: uintN; var argnames: PAnsiChar; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
-//--function JS_CompileUCFunctionForPrincipalsUC(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; name: pjschar; namelen: size_t; nargs: uintN; var argnames: PAnsiChar; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
-function JS_CompileUCScript(cx: PJSContext; obj: PJSObject; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSScript; cdecl; external libName ;
-function JS_CompileUCScriptForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSScript; cdecl; external libName ;
+
 function JS_ConcatStrings(cx: PJSContext; left: PJSString; right: PJSString): PJSString; cdecl; external libName ;
 function JS_ConstructObject(cx: PJSContext; clasp: PJSClass; proto: PJSObject; parent: PJSObject): PJSObject; cdecl; external libName ;
 function JS_ConstructObjectWithArguments(cx: PJSContext; clasp: PJSClass; proto: PJSObject; parent: PJSObject; argc: uintN; argv: pjsval): PJSObject; cdecl; external libName ;
@@ -848,15 +1026,15 @@ function JS_ConvertStub(cx: PJSContext; obj: PJSObject; _type: JSType; vp: pjsva
 function JS_ConvertValue(cx: PJSContext; v: jsval; _type: JSType; vp: pjsval): JSBool; cdecl; external libName ;
 function JS_DecompileFunction(cx: PJSContext; fun: PJSFunction; indent: uintN): PJSString; cdecl; external libName ;
 function JS_DecompileFunctionBody(cx: PJSContext; fun: PJSFunction; indent: uintN): PJSString; cdecl; external libName ;
-function JS_DecompileScript(cx: PJSContext; script: PJSScript; name: PAnsiChar; indent: uintN): PJSString; cdecl; external libName ;
+function JS_DecompileScript(cx: PJSContext; script: PJSObject; name: PAnsiChar; indent: uintN): PJSString; cdecl; external libName ;
 function JS_DefineConstDoubles(cx: PJSContext; obj: PJSObject; cds: PJSConstDoubleSpec): JSBool; cdecl; external libName ;
 function JS_DefineElement(cx: PJSContext; obj: PJSObject; index: jsint; value: jsval; getter: JSPropertyOp; setter: JSPropertyOp; attrs: uintN): JSBool; cdecl; external libName ;
 function JS_DefineFunction(cx: PJSContext; obj: PJSObject; name: PAnsiChar; call: JSNative; nargs: uintN; attrs: uintN): PJSFunction; cdecl; external libName ;
 function JS_DefineFunctions(cx: PJSContext; obj: PJSObject; fs: PJSFunctionSpec): JSBool; cdecl; external libName ;
 function JS_DefineObject(cx: PJSContext; obj: PJSObject; name: PAnsiChar; clasp: PJSClass; proto: PJSObject; attrs: uintN): PJSObject; cdecl; external libName ;
 function JS_DefineProperties(cx: PJSContext; obj: PJSObject; ps: PJSPropertySpec): JSBool; cdecl; external libName ;
-function JS_DefineProperty(cx: PJSContext; obj: PJSObject; name: PAnsiChar; value: jsval; getter: JSPropertyOp; setter: JSPropertyOp; attrs: uintN): JSBool; cdecl; external libName ;
-function JS_DefinePropertyWithTinyId(cx: PJSContext; obj: PJSObject; name: PAnsiChar; tinyid: int8; value: jsval; getter: JSPropertyOp; setter: JSPropertyOp; attrs: uintN): JSBool; cdecl; external libName ;
+function JS_DefineProperty(cx: PJSContext; obj: PJSObject; name: PAnsiChar; value: jsval; getter: JSPropertyOp; setter: JSStrictPropertyOp ; attrs: uintN): JSBool; cdecl; external libName ;
+function JS_DefinePropertyWithTinyId(cx: PJSContext; obj: PJSObject; name: PAnsiChar; tinyid: int8; value: jsval; getter: JSPropertyOp; setter: JSStrictPropertyOp ; attrs: uintN): JSBool; cdecl; external libName ;
 function JS_DefineUCFunction(cx: PJSContext; obj: PJSObject; name: pjschar; namelen: size_t; call: JSNative; nargs: uintN; attrs: uintN): PJSFunction; cdecl; external libName ;
 function JS_DefineUCProperty(cx: PJSContext; obj: PJSObject; name: pjschar; namelen: size_t; value: jsval; getter: JSPropertyOp; setter: JSPropertyOp; attrs: uintN): JSBool; cdecl; external libName ;
 function JS_DefineUCPropertyWithTinyId(cx: PJSContext; obj: PJSObject; name: pjschar; namelen: size_t; tinyid: int8; value: jsval; getter: JSPropertyOp; setter: JSPropertyOp; attrs: uintN): JSBool; cdecl; external libName ;
@@ -873,8 +1051,8 @@ function JS_EvaluateScript(cx: PJSContext; obj: PJSObject; bytes: PAnsiChar; len
 function JS_EvaluateScriptForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; bytes: PAnsiChar; length: uintN; filename: PAnsiChar; lineno: uintN; rval: pjsval): JSBool; cdecl; external libName ;
 function JS_EvaluateUCScript(cx: PJSContext; obj: PJSObject; chars: pjschar; length: uintN; filename: PAnsiChar; lineno: uintN; rval: pjsval): JSBool; cdecl; external libName ;
 function JS_EvaluateUCScriptForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; chars: pjschar; length: uintN; filename: PAnsiChar; lineno: uintN; rval: pjsval): JSBool; cdecl; external libName ;
-function JS_ExecuteScript(cx: PJSContext; obj: PJSObject; script: PJSScript; rval: pjsval): JSBool; cdecl; external libName ;
-function JS_ExecuteScriptPart(cx: PJSContext; obj: PJSObject; script: PJSScript; part: JSExecPart; rval: pjsval): JSBool; cdecl; external libName ;
+function JS_ExecuteScript(cx: PJSContext; obj: PJSObject; script: PJSObject; rval: pjsval): JSBool; cdecl; external libName ;
+function JS_ExecuteScriptPart(cx: PJSContext; obj: PJSObject; script: PJSObject; part: JSExecPart; rval: pjsval): JSBool; cdecl; external libName ;
 function JS_GetArrayLength(cx: PJSContext; obj: PJSObject; var length: jsuint): JSBool; cdecl; external libName ;
 function JS_GetClass(obj: PJSObject): PJSClass; cdecl; external libName ;
 function JS_GetConstructor(cx: PJSContext; proto: PJSObject): PJSObject; cdecl; external libName ;
@@ -884,7 +1062,7 @@ function JS_GetEmptyStringValue(cx: PJSContext): jsval; cdecl; external libName 
 function JS_GetExternalStringGCType(rt: PJSRuntime; str: PJSString): intN; cdecl; external libName ;
 function JS_GetFunctionFlags(fun: PJSFunction): uintN; cdecl; external libName ;
 function JS_GetFunctionId(fun: PJSFunction): PJSString; cdecl; external libName ;
-function JS_GetFunctionName(fun: PJSFunction): PAnsiChar; cdecl; external libName ;
+//function JS_GetFunctionName(fun: PJSFunction): PAnsiChar; cdecl; external libName ;
 function JS_GetFunctionObject(fun: PJSFunction): PJSObject; cdecl; external libName ;
 function JS_GetGlobalObject(cx: PJSContext): PJSObject; cdecl; external libName ;
 function JS_GetImplementationVersion: PAnsiChar; cdecl; external libName ;
@@ -907,10 +1085,12 @@ function JS_GetPrototype(cx: PJSContext; obj: PJSObject): PJSObject; cdecl; exte
 function JS_GetReservedSlot(cx: PJSContext; obj: PJSObject; index: uint32; vp: pjsval): JSBool; cdecl; external libName ;
 function JS_GetRuntime(cx: PJSContext): PJSRuntime; cdecl; external libName ;
 function JS_GetScopeChain(cx: PJSContext): PJSObject; cdecl; external libName ;
-function JS_GetScriptObject(script: PJSScript): PJSObject; cdecl; external libName ;
+function JS_GetScriptObject(script: PJSObject): PJSObject; cdecl; external libName ;
 function JS_GetStringBytes(str: PJSString): PAnsiChar; cdecl; external libName ;
-function JS_GetStringChars(str: PJSString): pjschar; cdecl; external libName ;
+function JS_GetStringCharsZ(cx: PJSContext; str: PJSString): pjschar; cdecl; external libName ;
 function JS_GetStringLength(str: PJSString): size_t; cdecl; external libName ;
+function JS_GetStringCharsZAndLength(cx: PJSContext; str: PJSString; s: size_t): pjschar; cdecl; external libName ;
+
 function JS_GetTypeName(cx: PJSContext; _type: JSType): PAnsiChar; cdecl; external libName ;
 function JS_GetUCProperty(cx: PJSContext; obj: PJSObject; name: pjschar; namelen: size_t; vp: pjsval): JSBool; cdecl; external libName ;
 function JS_GetUCPropertyAttributes(cx: PJSContext; obj: PJSObject; name: pjschar; namelen: size_t; attrsp: puintN; foundp: PJSBool): JSBool; cdecl; external libName ;
@@ -924,6 +1104,11 @@ procedure JS_SetRuntimePrivate(rt: PJSRuntime; data: pointer);cdecl; external li
 function JS_NewRuntime(maxbytes: uint32): PJSRuntime; cdecl; external LibName name 'JS_Init' ;
 procedure JS_DestroyRuntime(rt: PJSRuntime); cdecl; external LibName name 'JS_Finish' ;
 
+function JS_NewGlobalObject(cx: PJSContext; clasp: pJSClass): PJSObject; cdecl; external libName ;
+function JS_NewCompartmentAndGlobalObject(cx: PJSContext; clasp: pJSClass; principals: pJSPrincipals): PJSObject; cdecl; external libName ;
+
+function JS_NewObjectForConstructor(cx: PJSContext; const vp: Pjsval): PJSObject; cdecl; external libName ;
+
 function JS_InitClass(cx: PJSContext; obj: PJSObject; parent_proto: PJSObject;clasp: PJSClass; _constructor: JSNative; nargs: uintN; ps: PJSPropertySpec; fs: PJSFunctionSpec;static_ps: PJSPropertySpec; static_fs: PJSFunctionSpec): PJSObject; cdecl; external libName ;
 function JS_InitStandardClasses(cx: PJSContext; obj: PJSObject): JSBool; cdecl; external libName ;
 function JS_InstanceOf(cx: PJSContext; obj: PJSObject; clasp: PJSClass; argv: pjsval): JSBool; cdecl; external libName ;
@@ -932,7 +1117,8 @@ function JS_InternUCString(cx: PJSContext; s: pjschar): PJSString; cdecl; extern
 function JS_InternUCStringN(cx: PJSContext; s: pjschar; length: size_t): PJSString; cdecl; external libName ;
 function JS_IsAboutToBeFinalized(cx: PJSContext; thing: Pointer): JSBool; cdecl; external libName ;
 function JS_IsArrayObject(cx: PJSContext; obj: PJSObject): JSBool; cdecl; external libName ;
-function JS_IsConstructing(cx: PJSContext): JSBool; cdecl; external libName ;
+
+function JS_IsConstructing(cx: PJSContext; vp: pjsval): boolean;
 function JS_IsExceptionPending(cx: PJSContext): JSBool; cdecl; external libName ;
 function JS_IsRunning(cx: PJSContext): JSBool; cdecl; external libName ;
 function JS_LockGCThing(cx: PJSContext; thing: Pointer): JSBool; cdecl; external libName ;
@@ -954,7 +1140,6 @@ function JS_NewGrowableString(cx: PJSContext; chars: pjschar; length: size_t): P
 function JS_NewNumberValue(cx: PJSContext; d: jsdouble; rval: pjsval): JSBool; cdecl; external libName ;
 function JS_NewObject(cx: PJSContext; clasp: PJSClass; proto: PJSObject; parent: PJSObject): PJSObject; cdecl; external libName ;
 function JS_NewRegExpObject(cx: PJSContext; bytes: PAnsiChar; length: size_t; flags: uintN): PJSObject; cdecl; external libName ;
-function JS_NewScriptObject(cx: PJSContext; script: PJSScript): PJSObject; cdecl; external libName ;
 function JS_NewString(cx: PJSContext; bytes: PAnsiChar; length: size_t): PJSString; cdecl; external libName ;
 function JS_NewStringCopyN(cx: PJSContext; s: PAnsiChar; n: size_t): PJSString; cdecl; external libName ;
 function JS_NewStringCopyZ(cx: PJSContext; s: PAnsiChar): PJSString; cdecl; external libName ;
@@ -964,13 +1149,14 @@ function JS_NewUCStringCopyN(cx: PJSContext; s: pjschar; n: size_t): PJSString; 
 function JS_NewUCStringCopyZ(cx: PJSContext; s: pjschar): PJSString; cdecl; external libName ;
 function JS_Now: int64; cdecl; external libName ;
 function JS_ObjectIsFunction(cx: PJSContext; obj: PJSObject): JSBool; cdecl; external libName ;
-function  JS_PropertyStub(cx: PJSContext; obj: PJSObject; id: jsval; vp: pjsval): JSBool; cdecl; external libName ;
+function JS_PropertyStub(cx: PJSContext; obj: PJSObject; id: jsid; vp: pjsval): JSBool; cdecl; external libName ;
+function JS_StrictPropertyStub(cx: PJSContext; obj: PJSObject; id: jsid; _strict:jsbool; vp: pjsval): JSBool; cdecl; external libName ;
 function JS_realloc(cx: PJSContext; p: Pointer; nbytes: size_t): Pointer; cdecl; external libName ;
+
 function JS_RemoveExternalStringFinalizer(finalizer: JSStringFinalizeOp): intN; cdecl; external libName ;
-function JS_RemoveRoot(cx: PJSContext; rp: Pointer): JSBool; cdecl; external libName ;
-function JS_RemoveRootRT(rt: PJSRuntime; rp: Pointer): JSBool; cdecl; external libName ;
+
 function JS_ResolveStandardClass(cx: PJSContext; obj: PJSObject; id: jsval; resolved: PJSBool): JSBool; cdecl; external libName ;
-function JS_ResolveStub(cx: PJSContext; obj: PJSObject; id: jsval): JSBool; cdecl; external libName ;
+function JS_ResolveStub(cx: PJSContext; obj: PJSObject; id: jsid): JSBool; cdecl; external libName ;
 function JS_SaveExceptionState(cx: PJSContext): PJSExceptionState; cdecl; external libName ;
 function JS_SetArrayLength(cx: PJSContext; obj: PJSObject; length: jsuint): JSBool; cdecl; external libName ;
 function JS_SetBranchCallback(cx: PJSContext; cb: JSBranchCallback): JSBranchCallback; cdecl; external libName ;
@@ -1013,6 +1199,7 @@ function JS_ValueToNumber(cx: PJSContext; v: jsval; dp: pjsdouble): JSBool; cdec
 function JS_ValueToObject(cx: PJSContext; v: jsval; var objp: PJSObject): JSBool; cdecl; external libName ;
 function JS_ValueToString(cx: PJSContext; v: jsval): PJSString; cdecl; external libName ;
 function JS_VersionToString(version: JSVersion): PAnsiChar; cdecl; external libName ;
+
 function JS_XDRBytes(xdr: PJSXDRState; bytes: PAnsiChar; len: uint32): JSBool; cdecl; external libName ;
 function JS_XDRCString(xdr: PJSXDRState; var s: PAnsiChar): JSBool; cdecl; external libName ;
 function JS_XDRCStringOrNull(xdr: PJSXDRState; var s: PAnsiChar): JSBool; cdecl; external libName ;
@@ -1023,13 +1210,21 @@ function JS_XDRMemDataLeft(xdr: PJSXDRState): uint32; cdecl; external libName ;
 function JS_XDRMemGetData(xdr: PJSXDRState; lp: puint32): Pointer; cdecl; external libName ;
 function JS_XDRNewMem(cx: PJSContext; mode: JSXDRMode): PJSXDRState; cdecl; external libName ;
 function JS_XDRRegisterClass(xdr: PJSXDRState; clasp: PJSClass; lp: uint32): JSBool; cdecl; external libName ;
-function JS_XDRScript(xdr: PJSXDRState; var script: PJSScript): JSBool; cdecl; external libName ;
+
+function JS_XDRScript(xdr: PJSXDRState; var script: PJSObject): JSBool; cdecl; external libName name 'JS_XDRScriptObject';
+
 function JS_XDRString(xdr: PJSXDRState; var str: PJSString): JSBool; cdecl; external libName ;
 function JS_XDRStringOrNull(xdr: PJSXDRState; var str: PJSString): JSBool; cdecl; external libName ;
 function JS_XDRUint16(xdr: PJSXDRState; s: puint16): JSBool; cdecl; external libName ;
 function JS_XDRUint32(xdr: PJSXDRState; lp: puint32): JSBool; cdecl; external libName ;
 function JS_XDRUint8(xdr: PJSXDRState; b: puint8): JSBool; cdecl; external libName ;
 function JS_XDRValue(xdr: PJSXDRState; vp: pjsval): JSBool; cdecl; external libName ;
+procedure JS_XDRDestroy(xdr: PJSXDRState); cdecl; external libName ;
+procedure JS_XDRInitBase(xdr: PJSXDRState; mode: JSXDRMode; cx: PJSContext); cdecl; external libName ;
+procedure JS_XDRMemResetData(xdr: PJSXDRState); cdecl; external libName ;
+procedure JS_XDRMemSetData(xdr: PJSXDRState; data: Pointer; len: uint32); cdecl; external libName ;
+
+
 procedure JS_ClearNewbornRoots(cx: PJSContext); cdecl; external libName ;
 procedure JS_ClearPendingException(cx: PJSContext); cdecl; external libName ;
 procedure JS_ClearRegExpRoots(cx: PJSContext); cdecl; external libName ;
@@ -1039,7 +1234,6 @@ procedure JS_DestroyContext(cx: PJSContext); cdecl; external libName ;
 procedure JS_DestroyContextMaybeGC(cx: PJSContext); cdecl; external libName ;
 procedure JS_DestroyContextNoGC(cx: PJSContext); cdecl; external libName ;
 procedure JS_DestroyIdArray(cx: PJSContext; ida: PJSIdArray); cdecl; external libName ;
-procedure JS_DestroyScript(cx: PJSContext; script: PJSScript); cdecl; external libName ;
 procedure JS_DropExceptionState(cx: PJSContext; state: PJSExceptionState); cdecl; external libName ;
 procedure JS_FinalizeStub(cx: PJSContext; obj: PJSObject); cdecl; external libName ;
 procedure JS_Finish(rt: PJSRuntime); cdecl; external libName ;
@@ -1059,10 +1253,7 @@ procedure JS_SetPendingException(cx: PJSContext; v: jsval); cdecl; external libN
 procedure JS_SetRegExpInput(cx: PJSContext; input: PJSString; multiline: JSBool); cdecl; external libName ;
 procedure JS_ShutDown; cdecl; external libName ;
 procedure JS_Unlock(rt: PJSRuntime); cdecl; external libName ;
-procedure JS_XDRDestroy(xdr: PJSXDRState); cdecl; external libName ;
-procedure JS_XDRInitBase(xdr: PJSXDRState; mode: JSXDRMode; cx: PJSContext); cdecl; external libName ;
-procedure JS_XDRMemResetData(xdr: PJSXDRState); cdecl; external libName ;
-procedure JS_XDRMemSetData(xdr: PJSXDRState; data: Pointer; len: uint32); cdecl; external libName ;
+
 
 
 function JS_NewPropertyIterator(cx: PJSContext; obj: PJSObject): PJSObject; cdecl; external libName ;
@@ -1072,12 +1263,12 @@ function JS_GetMethodById(cx: PJSContext; obj: PJSObject;id: jsid ;var objp: PJS
 (* Debug API *)
 //     JS_AliasElement : function (cx: PJSContext; obj: PJSObject; name: PAnsiChar; alias: jsint): JSBool; cdecl;
 //JSOp = integer;
-function JS_SetTrap(cx: PJSContext; script: PJSScript; pc: pjsbytecode; handler: JSTrapHandler; closure: pointer): JSBOOL; cdecl; external libName ;
-function JS_GetTrapOpcode(cx: PJSContext; script: PJSScript;pc: Pjsbytecode): JSOp{ integer}; cdecl; external libName ;
-procedure JS_ClearTrap(cx: PJSContext; script: PJSScript; pc: Pjsbytecode; var handlerp: JSTrapHandler; var closurep: pointer); cdecl; external libName ;
-procedure JS_ClearScriptTraps(cx: PJSContext; script: PJSScript); cdecl; external libName ;
+function JS_SetTrap(cx: PJSContext; script: PJSObject; pc: pjsbytecode; handler: JSTrapHandler; closure: pointer): JSBOOL; cdecl; external libName ;
+function JS_GetTrapOpcode(cx: PJSContext; script: PJSObject;pc: Pjsbytecode): JSOp{ integer}; cdecl; external libName ;
+procedure JS_ClearTrap(cx: PJSContext; script: PJSObject; pc: Pjsbytecode; var handlerp: JSTrapHandler; var closurep: pointer); cdecl; external libName ;
+procedure JS_ClearScriptTraps(cx: PJSContext; script: PJSObject); cdecl; external libName ;
 procedure JS_ClearAllTraps(cx: PJSContext); cdecl; external libName ;
-function JS_HandleTrap(cx: PJSContext;script: PJSScript;  pc: Pjsbytecode; rval: Pjsval): JSTrapStatus; cdecl; external libName ;
+function JS_HandleTrap(cx: PJSContext;script: PJSObject;  pc: Pjsbytecode; rval: Pjsval): JSTrapStatus; cdecl; external libName ;
 function JS_SetInterrupt(rt: PJSRuntime;  handler: JSTrapHandler; closure: pointer): JSBool; cdecl; external libName ;
 function JS_ClearInterrupt(rt: PJSRuntime; var handlerp: JSTrapHandler; var closurep: pointer): JSBool; cdecl; external libName ;
 function JS_SetWatchPoint(cx: PJSContext; obj: PJSObject; id: jsval;
@@ -1087,14 +1278,14 @@ function JS_ClearWatchPoint(cx: PJSContext; obj: PJSObject;  id: jsval;
                    var handlerp: JSWatchPointHandler; var closurep: pointer): JSBool; cdecl; external libName ;
 function JS_ClearWatchPointsForObject(cx: PJSContext; obj: PJSObject): JSBool; cdecl; external libName ;
 function JS_ClearAllWatchPoints(cx: PJSContext): JSBool; cdecl; external libName ;
-function JS_PCToLineNumber(cx: PJSContext;  script: PJSScript; pc: pjsbytecode): uintN; cdecl; external libName ;
-function JS_LineNumberToPC(cx: PJSContext;  script: PJSScript; lineno: uintN ): pjsbytecode; cdecl; external libName ;
-function JS_GetFunctionScript(cx: PJSContext;  fun: PJSFunction): pJSScript; cdecl; external libName ;
+function JS_PCToLineNumber(cx: PJSContext;  script: PJSObject; pc: pjsbytecode): uintN; cdecl; external libName ;
+function JS_LineNumberToPC(cx: PJSContext;  script: PJSObject; lineno: uintN ): pjsbytecode; cdecl; external libName ;
+function JS_GetFunctionScript(cx: PJSContext;  fun: PJSFunction): PJSObject; cdecl; external libName ;
 function JS_GetFunctionNative(cx: PJSContext;  fun: PJSFunction): JSNative; cdecl; external libName ;
-function JS_GetScriptPrincipals(cx: PJSContext;  script: PJSScript): PJSPrincipals; cdecl; external libName ;
+function JS_GetScriptPrincipals(cx: PJSContext;  script: PJSObject): PJSPrincipals; cdecl; external libName ;
 
 function JS_FrameIterator(cx: PJSContext; var iteratorp: PJSStackFrame): PJSStackFrame;cdecl; external libName ;
-function JS_GetFrameScript(cx: PJSContext; fp: PJSStackFrame): PJSScript;cdecl; external libName ;
+function JS_GetFrameScript(cx: PJSContext; fp: PJSStackFrame): PJSObject;cdecl; external libName ;
 
 function JS_GetFramePC(cx: PJSContext; fp: PJSStackFrame): pjsbytecode;cdecl; external libName ;
 function JS_GetScriptedCaller(cx: PJSContext; fp: PJSStackFrame): PJSStackFrame;cdecl; external libName ;
@@ -1104,7 +1295,22 @@ function JS_EvalFramePrincipals(cx: PJSContext; fp: PJSStackFrame; caller: PJSSt
 function JS_GetFrameAnnotation(cx: PJSContext; fp: PJSStackFrame): pointer;cdecl; external libName ;
 procedure JS_SetFrameAnnotation(cx: PJSContext; fp: PJSStackFrame; annotation: pointer);cdecl; external libName ;
 function JS_GetFramePrincipalArray(cx: PJSContext;  fp: PJSStackFrame): pointer;cdecl; external libName ;
-function JS_IsNativeFrame(cx: PJSContext; fp: pJSStackFrame): JSBool;cdecl; external libName ;
+
+//function JS_IsScriptFrame(cx: PJSContext; fp: pJSStackFrame): JSBool;cdecl; external libName ;
+function JS_IsNativeFrame(cx: PJSContext; fp: pJSStackFrame): JSBool;cdecl; external libName name 'JS_IsScriptFrame';
+
+function JS_CompileFile(cx: PJSContext; obj: PJSObject; filename: PAnsiChar): PJSObject; cdecl; external libName ;
+function JS_CompileFileHandle(cx: PJSContext; obj: PJSObject; filename: PAnsiChar; fh: PFILE): PJSObject; cdecl; external libName ;
+function JS_CompileFileHandleForPrincipals(cx: PJSContext; obj: PJSObject; filename: PAnsiChar; fh: PFILE; principals: PJSPrincipals): PJSObject; cdecl; external libName ;
+function JS_CompileFunction(cx: PJSContext; obj: PJSObject; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
+function JS_CompileFunctionForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
+function JS_CompileScript(cx: PJSContext; obj: PJSObject; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSObject; cdecl; external libName ;
+function JS_CompileScriptForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; bytes: PAnsiChar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSObject; cdecl; external libName ;
+function JS_CompileUCFunction(cx: PJSContext; obj: PJSObject; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
+function JS_CompileUCFunctionForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; name: PAnsiChar; nargs: uintN; var argnames: PAnsiChar; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSFunction; cdecl; external libName ;
+function JS_CompileUCScript(cx: PJSContext; obj: PJSObject; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSObject; cdecl; external libName ;
+function JS_CompileUCScriptForPrincipals(cx: PJSContext; obj: PJSObject; principals: PJSPrincipals; chars: pjschar; length: size_t; filename: PAnsiChar; lineno: uintN): PJSObject; cdecl; external libName ;
+
 function JS_GetFrameScopeChain(cx: PJSContext; fp: pJSStackFrame): pJSObject;cdecl; external libName ;
 function JS_GetFrameCallObject(cx: PJSContext; fp: pJSStackFrame): pJSObject;cdecl; external libName ;
 function JS_GetFrameThis(cx: PJSContext; fp: pJSStackFrame): pJSObject;cdecl; external libName ;
@@ -1118,10 +1324,10 @@ function JS_GetFrameCalleeObject(cx: PJSContext; fp: pJSStackFrame): PJSObject;c
 
 //************************************************************************/
 
-function JS_GetScriptFilename(cx: PJSContext; script: PJSScript): PAnsiChar;cdecl; external libName ;
-function JS_GetScriptBaseLineNumber(cx: PJSContext; script: PJSScript): UIntN;cdecl; external libName ;
-function JS_GetScriptLineExtent(cx: PJSContext; script: PJSScript): UIntN;cdecl; external libName ;
-function JS_GetScriptVersion(cx: PJSContext; script: PJSScript): JSVersion;cdecl; external libName ;
+function JS_GetScriptFilename(cx: PJSContext; script: PJSObject): PAnsiChar;cdecl; external libName ;
+function JS_GetScriptBaseLineNumber(cx: PJSContext; script: PJSObject): UIntN;cdecl; external libName ;
+function JS_GetScriptLineExtent(cx: PJSContext; script: PJSObject): UIntN;cdecl; external libName ;
+function JS_GetScriptVersion(cx: PJSContext; script: PJSObject): JSVersion;cdecl; external libName ;
 
 procedure JS_SetNewScriptHook(rt: PJSRuntime; hook: JSNewScriptHook; callerdata: pointer);cdecl; external LibName name 'JS_SetNewScriptHookProc' ;
 
@@ -1154,7 +1360,7 @@ function JS_GetObjectTotalSize(cx: PJSContext; obj: pJSObject): size_t;cdecl; ex
 
 function JS_GetFunctionTotalSize(cx: PJSContext; fun: pJSFunction): size_t;cdecl; external libName ;
 
-function JS_GetScriptTotalSize(cx: PJSContext;script: pJSScript): size_t;cdecl; external libName ;
+function JS_GetScriptTotalSize(cx: PJSContext;script: PJSObject): size_t;cdecl; external libName ;
 
 {*
  * Get the top-most running script on cx starting from fp, or from the top of
@@ -1167,7 +1373,7 @@ function JS_GetTopScriptFilenameFlags(cx: PJSContext; fp: pJSStackFrame): uint32
  * Get the script filename flags for the script.  If the script doesn't have a
  * filename, return JSFILENAME_NULL.
  *}
-function JS_GetScriptFilenameFlags( script: pJSScript): uint32;cdecl; external libName ;
+function JS_GetScriptFilenameFlags( script: PJSObject): uint32;cdecl; external libName ;
 
 {*
  * Associate flags with a script filename prefix in rt, so that any subsequent
@@ -1203,12 +1409,12 @@ function JS_IsSystemObject(cx: pJSContext; obj: pJSObject): jsbool;cdecl; extern
 procedure JS_FlagSystemObject(cx: pJSContext; obj: pJSObject);cdecl; external libName ;
 
 (* Conversion routines *)
-function JSStringToString(str: PJSString): UnicodeString;
+function JSStringToString(cx: PJSContext; str: PJSString): UnicodeString;
 function JSStringToJSVal(str: PJSString): jsval;
 function StringToJSString(cx: PJSContext; const str: UnicodeString): PJSString;
 function StringToJSVal(cx: PJSContext; str: UnicodeString): jsval;
 function JSObjectToJSVal(obj: PJSObject): jsval;
-function DoubleToJSVal(cx: PJSContext; dbl: Double): jsval;
+function DoubleToJSVal(dbl: Double): jsval;
 function IntToJSVal(val: Integer): jsval; overload;
 function IntFitsInJSVal(i: integer): boolean;
 function BoolToJSVal(val: Boolean): jsval;
@@ -1217,7 +1423,7 @@ function JSValToDouble(cx: PJSContext; val: jsval): Double;
 function JSValToObject(v: jsval): PJSObject;
 function JSValToInt(val: jsval): Integer;
 function JSValToJSString(val: jsval): PJSString;
-function JSValToBoolean(val: jsval): Boolean;
+function JSValToBoolean(v: jsval): Boolean;
 function JSValToString(cx: PJSContext; val: jsval): UnicodeString;
 function JSValMinInt: integer;
 function JSValMaxInt: integer;
@@ -1228,7 +1434,7 @@ function JSValIsNumber(v: jsval): Boolean;
 function JSValIsInt(v: jsval): Boolean;
 function JSValIsDouble(v: jsval): Boolean;
 function JSValIsString(v: jsval): Boolean;
-function JSValIsBoolean(v: jsval): Boolean;             
+function JSValIsBoolean(v: jsval): Boolean;
 function JSValIsNull(v: jsval): Boolean;
 function JSValIsVoid(v: jsval): Boolean;
 
@@ -1238,63 +1444,29 @@ function CreateWideString(const Text: AnsiString): PWideChar; overload;
 function CreateWideString(const Text: UnicodeString): PWideChar; overload;
 procedure SetReservedSlots(var Cls: JSClass; Reserve: Integer);
 
+function JS_CALLEE(cx: PJSContext; vp: pjsval): jsval;inline;
+function JS_ARGV(cx: PJSContext; vp: pjsval): jsval;inline;
+function JS_ARGV_PTR(cx: PJSContext; vp: pjsval): pjsval;inline;
+function JS_RVAL(cx: PJSContext; vp: pjsval): jsval;inline;
+procedure JS_SET_RVAL(cx: PJSContext; vp: pjsval; v: jsval) {$ifndef debug}inline{$endif};
+
+function JS_THIS(cx: PJSContext; vp: pjsval): jsval;
+  //        ((vp)[0])
+(*#define JS_THIS(cx,vp)          JS_ComputeThis(cx, vp)
+#define JS_THIS_OBJECT(cx,vp)   (JSVAL_TO_OBJECT(JS_THIS(cx,vp)))
+#define JS_ARGV(cx,vp)          ((vp) + 2)
+#define JS_RVAL(cx,vp)          (*(vp))
+#define JS_SET_RVAL(cx,vp,v)    (*(vp) = (v))
+*)
+
 implementation
 
 uses Math;
 
-
-function JSStringToString(str: PJSString): UnicodeString;
-//var
-//  s: ansiString;
+function BUILD_JSVAL(tag: uint64; payload: uint32): jsval;
 begin
-//  s := JS_GetStringChars(str);
-  Result := UnicodeString(JS_GetStringChars(str));
-end;
-
-function JSStringToJSVal(str: PJSString): jsval;
-begin
-  Result := jsval(str);
-  if (not JSValIsString(Result)) then
-    Result := Result or JSVAL_STRING;
-end;
-
-function StringToJSString(cx: PJSContext; const str: UnicodeString): PJSString;
-begin
-  Result := JS_NewUCStringCopyN(cx, PWideChar(str), Length(str));
-end;
-
-function StringToJSVal(cx: PJSContext; str: UnicodeString): jsval;
-var
-  jsstr: PJSString;
-begin
-  jsstr := JS_NewUCStringCopyN(cx, PWideChar(str), Length(str));
-  Result := jsval(jsstr) or JSVAL_STRING;
-end;
-
-function JSObjectToJSVal(obj: PJSObject): jsval;
-begin
-  Result := jsval(obj);
-end;
-
-function DoubleToJSVal(cx: PJSContext; dbl: Double): jsval;
-begin
-  JS_NewNumberValue(cx, dbl, @Result);
-end;
-
-function BoolToJSVal(val: Boolean): jsval;
-var
-  tmp: Integer;
-begin
-  if (val) then
-    tmp := JSVAL_TRUE
-  else
-    tmp := JSVAL_FALSE;
-  Result := (tmp shl JSVAL_TAGBITS) or JSVAL_BOOLEAN;
-end;
-
-function IntToJSVal(val: Integer): jsval;
-begin
-  Result := (jsval(val) shl 1) or JSVAL_INT;
+  //((((uint64)(uint32)(tag)) << 32) | (uint32)(payload))
+  result.asBits := (tag shl 32) or payload;
 end;
 
 { SHR_INT32 }
@@ -1317,6 +1489,457 @@ begin
  end;
 {$endif}
 end;
+
+function JSStringToString(cx: PJSContext; str: PJSString): UnicodeString;
+//var
+//  s: ansiString;
+begin
+//  s := JS_GetStringChars(str);
+  Result := UnicodeString(JS_GetStringCharsZ(cx, str));
+end;
+
+function StringToJSString(cx: PJSContext; const str: UnicodeString): PJSString;
+begin
+  Result := JS_NewUCStringCopyN(cx, PWideChar(str), Length(str));
+end;
+
+
+{$POINTERMATH ON}
+
+
+
+
+{$ifdef CPUX64}
+
+function JS_IsConstructing(cx: PJSContext; vp: pjsval): boolean;
+var
+  l: jsval_layout;
+begin
+  l.asBits := vp[1].asBits;
+  result := (l.asBits shr JSVAL_TAG_SHIFT) = uint64(JSVAL_TAG_MAGIC);
+end;
+
+function STRING_TO_JSVAL_IMPL(str: PJSString): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+
+    //JS_ASSERT(str);
+    //jsval_layout l;
+    //uint64 strBits = uint64(str);
+    //JS_ASSERT(str);
+    //JS_ASSERT((strBits >> JSVAL_TAG_SHIFT) == 0);
+    result.asBits := uint64(str) or JSVAL_SHIFTED_TAG_STRING;
+    //return l;
+
+    //result.tag := JSVAL_TAG_STRING;
+    //result.payload.str := str;
+end;
+
+function OBJECT_TO_JSVAL_IMPL(obj: PJSObject): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+
+    //jsval_layout l;
+    //uint64 objBits = (uint64)obj;
+//    JS_ASSERT(obj);
+//    JS_ASSERT((objBits >> JSVAL_TAG_SHIFT) == 0);
+    result.asBits := uint64(obj) or JSVAL_SHIFTED_TAG_OBJECT;
+    //return l;
+end;
+
+function DOUBLE_TO_JSVAL_IMPL(d: Double): jsval_layout; {$ifndef debug}inline;{$endif}
+begin
+
+    //jsval_layout l;
+    result.asDouble := d;
+    //JS_ASSERT(l.asBits <= JSVAL_SHIFTED_TAG_MAX_DOUBLE);
+    //return l;
+end;
+
+function INT32_TO_JSVAL_IMPL(i: int32): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+
+    //JS_ASSERT(obj);
+    result.asBits := uint64(uint32(i)) or JSVAL_SHIFTED_TAG_INT32;
+
+end;
+
+function BOOLEAN_TO_JSVAL_IMPL(b: JSBool): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+
+    //JS_ASSERT(obj);
+    result.asBits := uint64(uint32(b)) or JSVAL_SHIFTED_TAG_BOOLEAN;
+end;
+
+function JSVAL_TO_OBJECT_IMPL(l: jsval_layout): PJSObject {$ifndef debug}inline{$endif};
+var
+  ptrBits: uint64;
+begin
+
+    //JS_ASSERT(obj);
+    ptrBits := l.asBits and JSVAL_PAYLOAD_MASK;
+    //JS_ASSERT((ptrBits & 0x7) == 0);
+    result := PJSObject(ptrBits);
+end;
+
+function JSVAL_TO_INT32_IMPL(l: jsval_layout): int32 {$ifndef debug}inline{$endif};
+begin
+
+    //JS_ASSERT(obj);
+    result := int32(l.asBits);
+end;
+
+function JSVAL_TO_STRING_IMPL(l: jsval_layout): PJSString {$ifndef debug}inline{$endif};
+begin
+
+    //JS_ASSERT(obj);
+    result := PJSString(l.asBits and JSVAL_PAYLOAD_MASK);
+end;
+
+function JSVAL_TO_BOOLEAN_IMPL(l: jsval_layout): JSBool {$ifndef debug}inline{$endif};
+begin
+
+    //JS_ASSERT(obj);
+    result := JSBool(l.asBits);
+end;
+
+
+function JSValIsObject(v: jsval): Boolean;
+begin
+
+    //l.asBits := v.asBits;
+    //JS_ASSERT((uint32)l.s.tag <= (uint32)JSVAL_TAG_OBJECT);
+    result := v.asBits >= JSVAL_SHIFTED_TAG_OBJECT;
+    //return JSVAL_IS_OBJECT_OR_NULL_IMPL(l);
+end;
+
+function JSValIsInt(v: jsval): Boolean;
+begin
+
+    result := uint32(v.asBits shr JSVAL_TAG_SHIFT) = uint32(JSVAL_TAG_INT32);
+
+end;
+
+function JSValIsDouble(v: jsval): Boolean;
+begin
+    result := v.asBits <= JSVAL_SHIFTED_TAG_MAX_DOUBLE;
+end;
+
+function JSValIsString(v: jsval): Boolean;
+begin
+    result := uint32(v.asBits shr JSVAL_TAG_SHIFT) = uint32(JSVAL_TAG_STRING);
+end;
+
+
+function JSValIsBoolean(v: jsval): Boolean;
+begin
+    result := uint32(v.asBits shr JSVAL_TAG_SHIFT) = uint32(JSVAL_TAG_BOOLEAN);
+end;
+
+
+function JSValIsNull(v: jsval): Boolean;
+begin
+    result := v.asBits = JSVAL_SHIFTED_TAG_NULL;
+end;
+
+
+function JSValIsVoid(v: jsval): Boolean;
+begin
+    result := v.asBits = JSVAL_SHIFTED_TAG_UNDEFINED;
+end;
+
+
+function JS_THIS(cx: PJSContext; vp: pjsval): jsval;
+begin
+  // vp[1].asBits < JSVAL_UPPER_EXCL_SHIFTED_TAG_OF_PRIMITIVE_SET;
+  if vp[1].asBits < JSVAL_UPPER_EXCL_SHIFTED_TAG_OF_PRIMITIVE_SET then
+     result := JS_ComputeThis(cx, vp)
+  else
+      result := vp[1];
+end;
+
+{$else}
+
+
+function JS_IsConstructing(cx: PJSContext; vp: pjsval): boolean;
+var
+  l: jsval_layout;
+begin
+  l.asBits := vp[1].asBits;
+  result := l.tag = JSVAL_TAG_MAGIC;
+end;
+
+//function IMPL_TO_JSVAL(v) (v)
+
+function STRING_TO_JSVAL_IMPL(str: PJSString): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+
+    //JS_ASSERT(str);
+    result.tag := JSVAL_TAG_STRING;
+    result.payload.str := str;
+end;
+
+function DOUBLE_TO_JSVAL_IMPL(d: Double): jsval_layout; {$ifndef debug}inline;{$endif}
+begin
+
+    //JS_ASSERT(str);
+    //result.tag := JSVAL_TAG_CLEAR;
+    result.asDouble := d;
+end;
+
+
+function BOOLEAN_TO_JSVAL_IMPL(b: JSBool): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+
+    //JS_ASSERT(obj);
+    result.tag := JSVAL_TAG_BOOLEAN;
+    result.payload.boo := b;
+end;
+
+
+
+function INT32_TO_JSVAL_IMPL(i: int32): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+    //JS_ASSERT(obj);
+    result.tag := JSVAL_TAG_INT32;
+    result.payload.i32 := i;
+
+end;
+
+function OBJECT_TO_JSVAL_IMPL(obj: PJSObject): jsval_layout;  {$ifndef debug}inline;{$endif}
+begin
+
+    //jsval_layout l;
+    //uint64 objBits = (uint64)obj;
+//    JS_ASSERT(obj);
+//    JS_ASSERT((objBits >> JSVAL_TAG_SHIFT) == 0);
+    //jsval_layout l;
+    //JS_ASSERT(obj);
+    result.tag := JSVAL_TAG_OBJECT;
+    result.payload.obj := obj;
+//    return l;
+//    result.asBits := uint64(obj) or JSVAL_SHIFTED_TAG_OBJECT;
+    //return l;
+end;
+
+
+
+function JSVAL_TO_BOOLEAN_IMPL(l: jsval_layout): JSBool {$ifndef debug}inline{$endif};
+begin
+
+    //JS_ASSERT(obj);
+    result := l.payload.boo;
+end;
+
+function JSVAL_TO_OBJECT_IMPL(l: jsval_layout): PJSObject {$ifndef debug}inline{$endif};
+begin
+
+    //JS_ASSERT(obj);
+    result := l.payload.obj;
+end;
+
+function JSVAL_TO_INT32_IMPL(l: jsval_layout): int32 {$ifndef debug}inline{$endif};
+begin
+
+    //JS_ASSERT(obj);
+    result := l.payload.i32;
+end;
+
+function JSVAL_TO_STRING_IMPL(l: jsval_layout): PJSString {$ifndef debug}inline{$endif};
+begin
+
+    //JS_ASSERT(obj);
+    result := l.payload.str;
+end;
+
+
+function JSValIsObject(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+
+    l.asBits := v.asBits;
+    //JS_ASSERT((uint32)l.s.tag <= (uint32)JSVAL_TAG_OBJECT);
+    result := uint32(l.tag) >= UInt32(JSVAL_LOWER_INCL_TAG_OF_OBJ_OR_NULL_SET);
+    //return JSVAL_IS_OBJECT_OR_NULL_IMPL(l);
+end;
+
+function JSValIsInt(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+
+    l.asBits := v.asBits;
+    result := l.tag = JSVAL_TAG_INT32;
+
+end;
+
+function JSValIsDouble(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+    l.asBits := v.asBits;
+    result := uint32(l.tag) <= uint32(JSVAL_TAG_CLEAR);
+end;
+
+function JSValIsString(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+    l.asBits := v.asBits;
+    result := l.tag = JSVAL_TAG_STRING;
+end;
+
+function JSValIsBoolean(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+    l.asBits := v.asBits;
+    result := l.tag = JSVAL_TAG_BOOLEAN;
+end;
+
+function JSValIsNull(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+    l.asBits := v.asBits;
+    result := l.tag = JSVAL_TAG_NULL;
+end;
+
+function JSValIsVoid(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+    l.asBits := v.asBits;
+    result := l.tag = JSVAL_TAG_UNDEFINED;
+end;
+
+function JS_THIS(cx: PJSContext; vp: pjsval): jsval;
+begin
+  if uint32(vp[1].tag) < uint32(JSVAL_UPPER_EXCL_TAG_OF_PRIMITIVE_SET) then
+     result := JS_ComputeThis(cx, vp)
+  else
+      result := vp[1];
+end;
+
+{$endif}
+
+function JS_CALLEE(cx: PJSContext; vp: pjsval): jsval;
+begin
+   Result := vp[0];
+end;
+
+function JS_ARGV(cx: PJSContext; vp: pjsval): jsval;
+begin
+  inc(vp, 2);
+  Result := vp^ ;
+end;
+
+function JS_ARGV_PTR(cx: PJSContext; vp: pjsval): pjsval;
+begin
+  inc(vp, 2);
+  Result := vp;
+end;
+
+function JS_RVAL(cx: PJSContext; vp: pjsval): jsval;
+begin
+   Result := vp^;
+end;
+
+procedure  JS_SET_RVAL(cx: PJSContext; vp: pjsval; v: jsval);
+begin
+   vp^ := v;
+end;
+
+
+
+{$POINTERMATH OFF}
+
+
+function JSStringToJSVal(str: PJSString): jsval;
+begin
+  Result := STRING_TO_JSVAL_IMPL(str);
+(*  Result := jsval(str);
+  if (not JSValIsString(Result)) then
+    Result := Result or JSVAL_STRING;*)
+end;
+
+function StringToJSVal(cx: PJSContext; str: UnicodeString): jsval;
+var
+  jsstr: PJSString;
+begin
+  jsstr := JS_NewUCStringCopyN(cx, PWideChar(str), Length(str));
+  Result := JSStringToJSVal(jsstr) ;
+end;
+
+function JSObjectToJSVal(obj: PJSObject): jsval;
+begin
+    if (obj <> nil) then
+        exit(OBJECT_TO_JSVAL_IMPL(obj));
+    Result := JSVAL_NULL;
+//  Result := jsval(obj);
+end;
+
+function DoubleToJSVal( dbl: JSDouble): jsval;
+begin
+  result := DOUBLE_TO_JSVAL_IMPL(dbl);
+//  JSValIsDouble(result);
+//  JS_NewNumberValue(cx, dbl, @Result);
+end;
+
+
+function IntToJSVal(val: Integer): jsval;
+begin
+  Result := INT32_TO_JSVAL_IMPL(val);
+end;
+
+
+function BoolToJSVal(val: Boolean): jsval;
+var
+  tmp: jsbool;
+begin
+  if (val) then
+    tmp := 1
+  else
+    tmp := 0;
+  Result := BOOLEAN_TO_JSVAL_IMPL(tmp);
+end;
+
+function JSValToObject(v: jsval): PJSObject;
+var
+ l: jsval_layout;
+begin
+    //JS_ASSERT(JSVAL_IS_INT(v));
+    l.asBits := v.asBits;
+    result := JSVAL_TO_OBJECT_IMPL(l);
+end;
+
+function JSValToInt(val: jsval): Integer;
+var
+ l: jsval_layout;
+begin
+    //JS_ASSERT(JSVAL_IS_INT(v));
+    l.asBits := val.asBits;
+    result := JSVAL_TO_INT32_IMPL(l);
+end;
+
+function JSValToJSString(val: jsval): PJSString;
+var
+ l: jsval_layout;
+begin
+    //JS_ASSERT(JSVAL_IS_INT(v));
+    l.asBits := val.asBits;
+    result := JSVAL_TO_STRING_IMPL(l);
+end;
+
+function JSValToBoolean(v: jsval): Boolean;
+var
+ l: jsval_layout;
+begin
+    //JS_ASSERT(JSVAL_IS_INT(v));
+    l.asBits := v.asBits;
+    result := JSVAL_TO_BOOLEAN_IMPL(l) = 1;
+end;
+
+
 (*
 #define JSVAL_INT_BITS          31
 #define JSVAL_INT_POW2(n)       ((jsval)1 << (n))
@@ -1348,32 +1971,6 @@ begin
 
 end;
 
-function JSValToInt(val: jsval): Integer;
-var
-  b: boolean;
-begin
-  //((jsuint)((i)+JSVAL_INT_MAX) <= 2*JSVAL_INT_MAX)
-  //b := IntFitsInJSVal(1966669824);
-  Result := shr_int32(val, 1);
-  //Result := val shr 1;
-  //shr doesn't handle signed types in the same way as C. If the source was
-  //negative then merge in the missing 1 in position 31.
-  //if val < 0 then
-  //  Result := Result or $80000000;
-end;
-
-function JSValToObject(v: jsval): PJSObject;
-begin
-  Result := PJSObject(v or JSVAL_OBJECT);
-end;
-
-function JSValToJSString(val: jsval): PJSString;
-begin
-  if (JSValIsString(val)) then
-    val := val xor JSVAL_STRING;
-  Result := PJSString(val);
-end;
-
 function JSValToDouble(cx: PJSContext; val: jsval): Double;
 begin
   JS_ValueToNumber(cx,val,@Result);
@@ -1381,52 +1978,12 @@ end;
 
 function JSValToString(cx: PJSContext; val: jsval): UnicodeString;
 begin
-   result := JSStringToString(JS_ValueToString(cx, val));
-end;
-
-function JSValToBoolean(val: jsval): Boolean;
-begin
-  Result := (val shr JSVAL_TAGBITS = JSVAL_TRUE);
-end;
-
-function JSValIsObject(v: jsval): Boolean;
-begin
-  Result := (v and JSVAL_TAGMASK = JSVAL_OBJECT);
+   result := JSStringToString(cx, JS_ValueToString(cx, val));
 end;
 
 function JSValIsNumber(v: jsval): Boolean;
 begin
   Result := (JSValIsInt(v) or JSValIsDouble(v));
-end;
-
-function JSValIsInt(v: jsval): Boolean;
-begin
-  Result := (v and JSVAL_INT <> 0) and (v <> JSVAL_VOID);
-end;
-
-function JSValIsDouble(v: jsval): Boolean;
-begin
-  Result := (v and JSVAL_TAGMASK = JSVAL_DOUBLE);
-end;
-
-function JSValIsString(v: jsval): Boolean;
-begin
-  Result := (v and JSVAL_TAGMASK = JSVAL_STRING);
-end;
-
-function JSValIsBoolean(v: jsval): Boolean;
-begin
-  Result := (v and JSVAL_TAGMASK = JSVAL_BOOLEAN);
-end;
-
-function JSValIsNull(v: jsval): Boolean;
-begin
-  Result := (v = JSVAL_NULL);
-end;
-
-function JSValIsVoid(v: jsval): Boolean;
-begin
-  Result := (v = JSVAL_VOID);
 end;
 
 function CreateAnsiString(const Text: AnsiString): PAnsiChar;
@@ -1465,7 +2022,7 @@ var
   LOldNotifyHook, LOldFailureHook: TDelayedLoadHook;
   test : string;
 
-function ImportName(const AProc: TDelayLoadProc): String; inline;
+function ImportName(const AProc: TDelayLoadProc): String {$ifndef debug}inline{$endif};
 begin
   if AProc.fImportByName then
     Result := AProc.szProcName
@@ -1514,6 +2071,8 @@ end;
      test := '';
   end;
 }
-
+//
+//Initialization
+//  JSVAL_NULL := BUILD_JSVAL(UInt32(JSVAL_TAG_NULL), 0);
 end.
 
