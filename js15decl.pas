@@ -6,7 +6,7 @@ uses SysUtils, Windows;
 const
 
 {$ifdef cpux64}
-    LibName =  'js64.dll';
+    LibName =  'js64d.dll';
 {$else}
     LibName =  'js32.dll';
 {$endif}
@@ -628,12 +628,21 @@ const
 
 //     ((((uint64)(uint32)(tag)) << 32) | (uint32)(payload))
 var
+{$ifdef cpux64}
+  JSVAL_VOID: jsval = (asBits:  uint64(uint64(JSVAL_TAG_UNDEFINED) shl JSVAL_TAG_SHIFT ) or 0);
+  JSVAL_NULL: jsval = (asBits: uint64(uint64(JSVAL_TAG_NULL) shl JSVAL_TAG_SHIFT )or 0);
+  JSVAL_ZERO: jsval = (asBits: uint64(uint64(JSVAL_TAG_INT32) shl JSVAL_TAG_SHIFT ) or 0);
+  JSVAL_ONE: jsval = (asBits: uint64(uint64(JSVAL_TAG_INT32) shl JSVAL_TAG_SHIFT ) or 1);
+  JSVAL_FALSE: jsval = (asBits: uint64(uint64(JSVAL_TAG_BOOLEAN) shl JSVAL_TAG_SHIFT ) or 0);
+  JSVAL_TRUE: jsval = (asBits: uint64(uint64(JSVAL_TAG_BOOLEAN) shl JSVAL_TAG_SHIFT ) or 1);
+{$else}
   JSVAL_VOID: jsval = (asBits:  uint64(uint64(JSVAL_TAG_UNDEFINED) shl 32 ) or 0);
   JSVAL_NULL: jsval = (asBits: uint64(uint64(JSVAL_TAG_NULL) shl 32 )or 0);
   JSVAL_ZERO: jsval = (asBits: uint64(uint64(JSVAL_TAG_INT32) shl 32 ) or 0);
   JSVAL_ONE: jsval = (asBits: uint64(uint64(JSVAL_TAG_INT32) shl 32 ) or 1);
   JSVAL_FALSE: jsval = (asBits: uint64(uint64(JSVAL_TAG_BOOLEAN) shl 32 ) or 0);
   JSVAL_TRUE: jsval = (asBits: uint64(uint64(JSVAL_TAG_BOOLEAN) shl 32 ) or 1);
+{$endif}
 
 type
   PFile = ^File;
