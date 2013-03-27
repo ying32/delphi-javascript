@@ -203,9 +203,9 @@ type
       AClassFlags: TJSClassFlagAttributes = []); overload; virtual;
     procedure FreeJSObject(Engine: TJSEngine);
     function JSEngine: TJSEngine; overload;
-    property JSObject: PJSObject read Fjsobj;
+    property JSObj: PJSObject read Fjsobj;
     property nativeObj: TObject read FNativeObj;
-    property JSDelphiObject: TJSObject read FJSObject;
+    property JSObject: TJSObject read FJSObject;
     property ClassProto: TJSClassProto read FClassProto;
 
   end;
@@ -579,7 +579,7 @@ end;
 
 function GetParamName(cx: PJSContext; id: jsval): String;
 begin
-  Result := JS_GetStringCharsZ(cx, JS_ValueToString(cx, id));
+  Result := JSValToString(cx, id);
 end;
 
 { TJSEngine }
@@ -633,6 +633,7 @@ var
   em: TArithmeticExceptionMask;
   bool: JSBool;
   v: jsval;
+  ver: JSVersion;
 begin
 {$ifdef CPUX64}
   ClearExceptions(false);
@@ -645,11 +646,12 @@ begin
   fcx := JS_NewContext(frt, fstackSize);
   JS_SetRuntimePrivate(frt, self);
 
+  JS_SetOptions(fcx, JS_GetOptions(fcx) or JSOPTION_VAROBJFIX or JSOPTION_JIT or JSOPTION_METHODJIT);
+
   //FRttiContext := TRttiContext.Create;
   //JS_SetContextPrivate(fcx, @FRttiContext);
 
   SetReservedSlots(global_class, 255);
-//  fglobal := JS_NewObject(fcx, @global_class, nil, nil);
   fglobal := JS_NewCompartmentAndGlobalObject(fcx, @global_class, nil);
   JS_SetErrorReporter(fcx, ErrorReporter);
 
@@ -661,9 +663,11 @@ begin
   FDebuggerScripts := TJSDebuggerScripts.Create;
   FMethodNamesMap := TDictionary<string, TJSMethod>.Create;
 
-  JS_SetOptions(fcx, JS_GetOptions(fcx) or JSOPTION_VAROBJFIX);
+  //ver := JS_GetVersion(fcx);
 
-  v := jsval_null;
+  //vv := 1024;
+  //v := vv;
+  //v := jsval_null;
   //JS_SetBranchCallback(fcx, JSBranchCallback);
   registerGlobalFunctions(TJSInternalGlobalFunctions);
   //strictMode := true;
@@ -1410,7 +1414,7 @@ begin
   for i := 0 to list^.Length - 1 do
   begin
     JS_IdToValue(cx, curid^, @val);
-    Result[i] := String(JS_GetStringCharsZ(cx, JS_ValueToString(cx, val)));
+    Result[i] := JSValToString(cx, val);
     Inc(curid);
   end;
 end;
@@ -1519,7 +1523,7 @@ begin
 
   if (Result) and (not JSValIsNull(rval)) then
   begin
-    str := JS_GetStringCharsZ(FEngine.Context, JS_ValueToString(FEngine.Context, rval));
+    str := JSValToString(FEngine.Context, rval);
     UniqueString(str);
   end
   else
@@ -2650,12 +2654,7 @@ begin
           end;
         's':
           begin
-            JS := JS_ValueToString(JSEngine.Context, jsArgs[nArg]);
-            { if JSValIsString(jsArgs[nArg]) then
-              Result := Result + literal + JSStringToString(JSValToJSString(jsArgs[nArg]))
-              else begin
-              js := JS_ValueToString(JSEngine.Context, jsArgs[nArg]); }
-            Result := Result + literal + JSStringToString(JSEngine.Context,JS)
+            Result := Result + literal + JSValToString(JSEngine.Context, jsArgs[nArg])
             // end;
           end;
       end;
@@ -3003,9 +3002,9 @@ begin
        else if JSValIsString(vp) then
        begin
           if (t.Name = 'PWideChar') then
-             Result := TValue.From<PWideChar>( PWideChar(JSStringToString(cx, JS_ValueToString(cx, vp))))
+             Result := TValue.From<PWideChar>( PWideChar(JSValToString(cx, vp)))
           else if (t.Name = 'PAnsiChar') then
-             Result := TValue.From<PAnsiChar>( PAnsiChar(AnsiString(JSStringToString(cx, JS_ValueToString(cx, vp)))))
+             Result := TValue.From<PAnsiChar>( PAnsiChar(AnsiString(JSValToString(cx, vp))))
 
        end;
     end;
@@ -3022,7 +3021,7 @@ begin
 
     tkLString:
       if not JSValIsVoid(vp) then
-         Result := TValue.From<AnsiString>(AnsiString(JSStringToString(cx, JS_ValueToString(cx, vp))));
+         Result := TValue.From<AnsiString>(AnsiString(JSValToString(cx, vp)));
 
     tkWString, tkString, tkUString:
       if not (JSValIsVoid(vp) or JSValIsNull(vp)) then
@@ -3343,7 +3342,7 @@ begin
     end;
     tkInt64:
     begin
-      if IntFitsInJSVal(Value.asInt64) then
+      if UInt64(Value.asInt64) < $ffffffff then
          Result := IntToJSVal(Value.asInt64)
       else
          Result := DoubleToJSVal( Value.asInt64);
@@ -3351,10 +3350,10 @@ begin
 
     tkInteger:
     begin
-      if IntFitsInJSVal(Value.AsInteger) then
+      //if IntFitsInJSVal(Value.AsInteger) then
          Result := IntToJSVal(Value.AsInteger)
-      else
-         Result := DoubleToJSVal(Value.AsInteger);
+      //else
+      //   Result := DoubleToJSVal(Value.AsInteger);
     end;
     tkFloat:
       begin
@@ -3526,7 +3525,7 @@ procedure TJSClass.FreeJSObject(Engine: TJSEngine);
 begin
   // JS_DeleteUCProperty2(FEngine.Context, parent, PWideChar(Obj.JSName), Length(Obj.JSName), @rval);
   try
-    JS_SetPrivate(Engine.Context, JSObject, NIL);
+    JS_SetPrivate(Engine.Context, JSObj, NIL);
   except
 
   end;
@@ -3550,7 +3549,7 @@ end;
 
 class function TJSClass.GetParamName(cx: PJSContext; id: jsval): string;
 begin
-  Result := JS_GetStringCharsZ(cx, JS_ValueToString(cx, id));
+  Result := JSValToString(cx, id);
 
 end;
 
@@ -4043,5 +4042,7 @@ end;
 
 Initialization
   RttiContext:= TRttiContext.Create;
+Finalization
+  RttiContext.Free;
 end.
 

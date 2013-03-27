@@ -85,17 +85,12 @@ const
   JSOPTION_XML                    = 1 shl 6;
   JSOPTION_NATIVE_BRANCH_CALLBACK = 1 shl 7;
   JSOPTION_DONT_REPORT_UNCAUGHT   = 1 shl 8;
+  JSOPTION_JIT                    = 1 shl 11;
+  JSOPTION_METHODJIT              = 1 shl 14;
+  JSOPTION_PROFILING              = 1 shl 15;
+  JSOPTION_METHODJIT_ALWAYS       = 1 shl 16;
 
   (* Numeric equivalents of javascript versions *)
-  JSVERSION_1_0 = 100;
-  JSVERSION_1_1 = 110;
-  JSVERSION_1_2 = 120;
-  JSVERSION_1_3 = 130;
-  JSVERSION_1_4 = 140;
-  JSVERSION_ECMA_3 = 148;
-  JSVERSION_1_5 = 150;
-  JSVERSION_DEFAULT = 0;
-  JSVERSION_UNKNOWN = -1;
 
   (* Property attributes *)
   JSPROP_ENUMERATE = $01;
@@ -437,7 +432,23 @@ JSOP_LIMIT
   JSSize = size_t;
   JSPtrdiff = ptrdiff_t;
   JSUptrdiff = uptrdiff_t;
-  JSVersion = Integer;
+//  JSVersion = Integer;
+  JSVersion = (
+    JSVERSION_1_0     = 100,
+    JSVERSION_1_1     = 110,
+    JSVERSION_1_2     = 120,
+    JSVERSION_1_3     = 130,
+    JSVERSION_1_4     = 140,
+    JSVERSION_ECMA_3  = 148,
+    JSVERSION_1_5     = 150,
+    JSVERSION_1_6     = 160,
+    JSVERSION_1_7     = 170,
+    JSVERSION_1_8     = 180,
+    JSVERSION_ECMA_5  = 185,
+    JSVERSION_DEFAULT = 0,
+    JSVERSION_UNKNOWN = -1,
+    JSVERSION_LATEST  = JSVERSION_ECMA_5
+  );
   JSHashNumber = uint32;
   JSXDRMode = uint32;
 
@@ -567,7 +578,12 @@ type
 
 
   jsval_layout = record
-    case integer of
+ { public
+    class operator Implicit(const Value: boolean): jsval_layout;
+    class operator Implicit(const Value: Integer): jsval_layout;
+    class operator Implicit(const Value: Double): jsval_layout;
+    class operator Implicit(const Value: Int64): jsval_layout;
+  }  case integer of
       0: (asBits: UInt64);
       1: (payload: Tpayload;
         //  tag: TJSValueTag;
@@ -590,7 +606,12 @@ type
 
 
   jsval_layout = record
-    case integer of
+{  public
+    class operator Implicit(const Value: boolean): jsval_layout;
+    class operator Implicit(const Value: Integer): jsval_layout;
+    class operator Implicit(const Value: Double): jsval_layout;
+    class operator Implicit(const Value: Int64): jsval_layout;
+ }  case integer of
       0: (asBits: UInt64);
       1: (payload: Tpayload;
           tag: TJSValueTag;
@@ -599,6 +620,10 @@ type
       3: (asPtr: pointer;);
   end;
 {$endif}
+
+{$IF CompilerVersion >= 22}
+{$ifend}
+
   jsval = jsval_layout;
 
   jsrefcount = JSInt32;
@@ -1425,7 +1450,6 @@ function StringToJSVal(cx: PJSContext; str: UnicodeString): jsval;
 function JSObjectToJSVal(obj: PJSObject): jsval;
 function DoubleToJSVal(dbl: Double): jsval;
 function IntToJSVal(val: Integer): jsval; overload;
-function IntFitsInJSVal(i: integer): boolean;
 function BoolToJSVal(val: Boolean): jsval;
 
 function JSValToDouble(cx: PJSContext; val: jsval): Double;
@@ -1974,12 +1998,6 @@ begin
   result := (JSValIntPOW2(30) - 1);
 end;
 
-function IntFitsInJSVal(i: integer): boolean;
-begin
-  result := ((i)+JSValMaxInt) <= 2*JSValMinInt
-
-end;
-
 function JSValToDouble(cx: PJSContext; val: jsval): Double;
 begin
   JS_ValueToNumber(cx,val,@Result);
@@ -2083,5 +2101,26 @@ end;
 //
 //Initialization
 //  JSVAL_NULL := BUILD_JSVAL(UInt32(JSVAL_TAG_NULL), 0);
+(*
+class operator jsval_layout.Implicit(const Value: boolean): jsval_layout;
+begin
+  Result := BoolToJSVal(Value);
+end;
+
+class operator jsval_layout.Implicit(const Value: integer): jsval_layout;
+begin
+  Result := IntToJSVal(Value);
+end;
+
+class operator jsval_layout.Implicit(const Value: int64): jsval_layout;
+begin
+  Result := DoubleToJSVal(Value);
+end;
+
+class operator jsval_layout.Implicit(const Value: double): jsval_layout;
+begin
+  Result := DoubleToJSVal(Value);
+end;
+*)
 end.
 
