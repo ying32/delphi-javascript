@@ -925,8 +925,9 @@ begin
       args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
       methodResult := m.Invoke(method.method_class, args);
       if methodResult.Kind <> tkUnknown then
-         vp^ := TJSClass.TValueToJSVal(cx, methodResult,
-                methodResult.TypeInfo.name = 'TDateTime');
+      begin
+         TJSClass.TValueToJSVal(cx, methodResult, methodResult.typeinfo.name = 'TDateTime');
+      end;
 
       Result := js_true;
     except
@@ -2413,7 +2414,7 @@ begin
       args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
       methodResult := m.Invoke(Obj.FNativeObj, args);
       if methodResult.Kind <> tkUnknown then
-         vp^ := TValueToJSVal(cx, methodResult, methodResult.typeinfo.name = 'TDateTime');
+         TValueToJSVal(cx, methodResult, methodResult.typeinfo.name = 'TDateTime');
 
     except
       on e: Exception do
@@ -3354,6 +3355,9 @@ begin
 
   if Value.IsEmpty then
     exit;
+
+  if Value.IsType<jsval> then
+     exit(Value.AsType<jsval>);
 
   case Value.Kind of
     tkSet:
