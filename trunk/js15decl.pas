@@ -8,7 +8,7 @@ const
 {$ifdef cpux64}
     LibName =  'js64.dll';
 {$else}
-    LibName =  'js32.dll';
+    LibName =  'js32d.dll';
 {$endif}
 
 const
