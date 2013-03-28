@@ -1791,7 +1791,7 @@ begin
 
     l.asBits := v.asBits;
     //JS_ASSERT((uint32)l.s.tag <= (uint32)JSVAL_TAG_OBJECT);
-    result := uint32(l.tag) >= UInt32(JSVAL_LOWER_INCL_TAG_OF_OBJ_OR_NULL_SET);
+    result := l.tag = JSVAL_TAG_OBJECT;
     //return JSVAL_IS_OBJECT_OR_NULL_IMPL(l);
 end;
 
