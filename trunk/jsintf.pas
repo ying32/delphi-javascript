@@ -5,7 +5,8 @@ uses Classes, {ptrarray, namedarray,} TypInfo, js15decl, RTTI, types,
   Generics.Collections, SysUtils, Windows, Controls, syncObjs, JSDbgServer, forms, dialogs;
 
 var
-  global_class: JSClass = (name: 'global'; flags: JSCLASS_IS_GLOBAL or JSCLASS_HAS_PRIVATE;
+//293632
+  global_class: JSClass = (name: 'global'; flags: 293632 or JSCLASS_HAS_PRIVATE;
 
     addProperty: JS_PropertyStub;
     delProperty: JS_PropertyStub; getProperty: JS_PropertyStub; setProperty: JS_StrictPropertyStub;
@@ -225,7 +226,8 @@ type
     end;
 
   var
-    farrayclass: PJSClass;
+    fslowArrayClass: PJSClass;
+    fArrayClass: PJSClass;
     fbooleanclass: PJSClass;
     fcx: PJSContext;
     fdateclass: PJSClass;
@@ -302,7 +304,8 @@ type
 
     procedure SetErrorReporter(proc: JSErrorReporter);
 
-    property ArrayClass: PJSClass read farrayclass;
+    property slowArrayClass: PJSClass read fslowArrayClass;
+    property ArrayClass: PJSClass read FArrayClass;
     property BooleanClass: PJSClass read fbooleanclass;
     property Context: PJSContext read fcx;
     property Runtime: PJSRuntime read frt;
@@ -534,9 +537,14 @@ begin
   Result := '(inline)' + GetGUID + '.js'
 end;
 
-procedure Debug(s: string);
+procedure Debug(s: string); overload;
 begin
   OutputDebugString(PChar(s));
+end;
+
+procedure Debug(f: string;const a:array of const ); overload;
+begin
+  OutputDebugString(PChar(format(f, a)));
 end;
 
 function JSBranchCallback(cx: PJSContext; script: PJSObject): JSBool; cdecl;
@@ -641,17 +649,17 @@ begin
 {$ENDIF}
 
   fstackSize := 8192;
-  frt := JS_NewRuntime(MaxMemory);
+  Frt := JS_NewRuntime(MaxMemory);
 
   fcx := JS_NewContext(frt, fstackSize);
   JS_SetRuntimePrivate(frt, self);
 
-  JS_SetOptions(fcx, JS_GetOptions(fcx) or JSOPTION_VAROBJFIX or JSOPTION_JIT or JSOPTION_METHODJIT);
+  JS_SetOptions(fcx, JS_GetOptions(fcx) or JSOPTION_VAROBJFIX {or JSOPTION_JIT or JSOPTION_METHODJIT});
 
   //FRttiContext := TRttiContext.Create;
   //JS_SetContextPrivate(fcx, @FRttiContext);
 
-  SetReservedSlots(global_class, 255);
+  //SetReservedSlots(global_class, 255);
   fglobal := JS_NewCompartmentAndGlobalObject(fcx, @global_class, nil);
   JS_SetErrorReporter(fcx, ErrorReporter);
 
@@ -659,16 +667,11 @@ begin
   bool := JS_InitStandardClasses(fcx, fglobal);
 
   GetStandardClasses;
+
   FDelphiClasses := TDictionary<string, TJSClassProto>.Create;
   FDebuggerScripts := TJSDebuggerScripts.Create;
   FMethodNamesMap := TDictionary<string, TJSMethod>.Create;
 
-  //ver := JS_GetVersion(fcx);
-
-  //vv := 1024;
-  //v := vv;
-  //v := jsval_null;
-  //JS_SetBranchCallback(fcx, JSBranchCallback);
   registerGlobalFunctions(TJSInternalGlobalFunctions);
   //strictMode := true;
 end;
@@ -794,6 +797,7 @@ procedure TJSEngine.GetStandardClasses;
 var
   Obj: PJSObject;
   v: jsval;
+  jsarr: PJSObject;
 
   function Eval(const str: String): jsval;
   var
@@ -805,13 +809,18 @@ var
 
 begin
 
-  JS_EvaluateUCScript(fcx, fglobal, PWideChar('Date.prototype'), Length('Date.prototype'), nil, 0, @v);
+  //jsarr := JS_NewArrayObject(fcx, 0, nil);
+
+  //JS_EvaluateUCScript(fcx, fglobal, PWideChar('Date.prototype'), Length('Date.prototype'), nil, 0, @v);
   v := Eval('Date.prototype');
   Obj := JSValToObject(v);
   fdateclass := JS_GetClass(Obj);
 
+  Obj := JSValToObject(Eval('new Array()'));
+  fArrayClass := JS_GetClass(Obj);
+
   Obj := JSValToObject(Eval('Array.prototype'));
-  farrayclass := JS_GetClass(Obj);
+  fslowArrayClass := JS_GetClass(Obj);
 
   Obj := JSValToObject(Eval('Boolean.prototype'));
   fbooleanclass := JS_GetClass(Obj);
@@ -1315,7 +1324,9 @@ begin
     Result := ctUnknownType;
   end;
 
-  if (cls = FEngine.farrayclass) then
+
+
+  if (JS_IsArrayObject(FEngine.Context, fjsobj) = js_true) then
     Result := ctArray
   else if (cls = FEngine.fdateclass) then
     Result := ctDate
@@ -2319,6 +2330,42 @@ var
   argv: pjsval;
   objval: jsval;
   jsobj: pjsobject;
+  methods: TArray<TRttiMethod>;
+
+  function RttiMethodInvokeEx(const MethodName:string; RttiType : TRttiType; Instance: TValue; const Args: array of TValue): TValue;
+  var
+   Found   : Boolean;
+   LMethod : TRttiMethod;
+   LIndex  : Integer;
+   LParams : TArray<TRttiParameter>;
+  begin
+    Result:=nil;
+    LMethod:=nil;
+    Found:=False;
+    for LMethod in RttiType.GetMethods do
+     if SameText(LMethod.Name, MethodName) then
+     begin
+       LParams:=LMethod.GetParameters;
+       if Length(Args)=Length(LParams) then
+       begin
+         Found:=True;
+         for LIndex:=0 to Length(LParams)-1 do
+         if LParams[LIndex].ParamType.Handle<>Args[LIndex].TypeInfo then
+         begin
+           Found:=False;
+           Break;
+         end;
+       end;
+
+       if Found then Break;
+     end;
+
+     if (LMethod<>nil) and Found then
+       Result:=LMethod.Invoke(Instance, Args)
+     else
+       raise Exception.CreateFmt('method %s not found',[MethodName]);
+  end;
+
 begin
 {$POINTERMATH ON}
 
@@ -2354,11 +2401,15 @@ begin
   if (Obj.FClassProto <> nil) and (Obj.FClassProto.FMethodNamesMap.Values[methodName] <> '') then
     methodName := Obj.FClassProto.FMethodNamesMap.Values[methodName];
 
-  for m in t.GetMethods(methodName) do
+  // Handle overloaded methods ????
+  methods := t.GetMethods(methodName);
+  for m in methods do
   begin
     params := m.GetParameters;
 
     try
+     //methodResult := RttiMethodInvokeEx(MethodName, t, Obj.FNativeObj, args);
+
       args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
       methodResult := m.Invoke(Obj.FNativeObj, args);
       if methodResult.Kind <> tkUnknown then
@@ -2934,6 +2985,7 @@ var
   ClassInstance: TRttiInstanceType;
   constructorMethod: TRttiMethod;
   prop: TRttiProperty;
+  clasp: PJSClass;
 
 begin
   eng := TJSClass.JSEngine(cx);
@@ -3061,7 +3113,7 @@ begin
       end;
     tkDynArray:
       begin
-        if (JSValIsObject(vp)) and (JS_InstanceOf(cx, JSValToObject(vp), eng.ArrayClass, nil) = js_true) then
+        if (JSValIsObject(vp)) and (JS_IsArrayObject(cx, JSValToObject(vp)) = js_true) then
         begin
           typeData := GetTypeData(t);
           len := 0;
@@ -3294,6 +3346,8 @@ var
   RttiType: TRttiType;
   field: TRttiField;
   p: pointer;
+  bb: jsbool;
+  clasp: PJSClass;
 
 begin
   Result := JSVAL_NULL;
@@ -3390,6 +3444,8 @@ begin
             classObj.FPointerProps.TryGetValue(propName, propClass) and
             (Value.AsObject = propClass.FNativeObj) then
         begin
+           JS_MaybeGC(cx);
+           //propClass := nil; classObj.FPointerProps.Remove(propName);
            exit( JSObjectToJSVal(propClass.fjsobj) );
         end
         else begin
@@ -3454,6 +3510,9 @@ begin
             JS_SetElement(eng.Context, jsarr, L, @val);
           end;
           Result := JSObjectToJSVal(jsarr);
+          //clasp := JS_GetClass(jsarr);
+          //bb := JS_InstanceOf(cx, jsarr{JSValToObject(vp)}, eng.slowArrayClass, nil);
+          //bb := bb;
         end;
       end;
     tkRecord:
@@ -3494,7 +3553,7 @@ destructor TJSClass.Destroy;
 var
   i: Integer;
 begin
-//  OutputDebugString(pchar('Free '+fnativeobj.classname));
+// debug('Free '+fnativeobj.classname);
 
   RemoveFreeNotifications;
 
@@ -3754,32 +3813,32 @@ begin
     }
   *)
 
-  for i := 0 to High(params) do
-  begin
-
-    param := params[i];
-
-    if param.ParamType.Handle = TypeInfo(TJSNativeCallParams) then
+    for i := 0 to High(params) do
     begin
-      nativeParams.cx := cx;
-      nativeParams.jsobj := jsobj;
-      nativeParams.argc := argc;
-      nativeParams.argv := argv;
-      TValue.Make(@nativeParams, TypeInfo(TJSNativeCallParams), Result[i]);
-    end
-    else
-    begin
-      if (argc = 0) or (i > argc - 1) then
+
+      param := params[i];
+
+      if param.ParamType.Handle = TypeInfo(TJSNativeCallParams) then
       begin
-        Result[i] := getDefaultValue(param.ParamType.Handle);
+        nativeParams.cx := cx;
+        nativeParams.jsobj := jsobj;
+        nativeParams.argc := argc;
+        nativeParams.argv := argv;
+        TValue.Make(@nativeParams, TypeInfo(TJSNativeCallParams), Result[i]);
       end
       else
       begin
-        Result[i] := JSValToTValue(cx, param.ParamType.Handle, argv[i], param.ParamType);
+        if (argc = 0) or (i > argc - 1) then
+        begin
+          Result[i] := getDefaultValue(param.ParamType.Handle);
+        end
+        else
+        begin
+          Result[i] := JSValToTValue(cx, param.ParamType.Handle, argv[i], param.ParamType);
+        end;
       end;
-    end;
 
-  end;
+    end;
 
 {$POINTERMATH OFF}
 end;
