@@ -133,6 +133,7 @@ type
     class procedure DefineProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
     class procedure DefineFunctions(cx: PJSContext; obj: PJSObject; funcs: TJSFunctionsDynArray);
     class procedure DeleteProperties(cx: PJSContext; obj: PJSObject; props: TJSPropertiesDynArray);
+    class procedure DefineEnum(cx: PJSContext; Obj: TJSObject; pt: TRttiType);
 
     property JSClassName: string read getJSClassName;
     property JSClassProto: PJSObject read FJSClassProto;
@@ -399,8 +400,8 @@ type
     function IsFunction(const Name: String): boolean;
     function IsInteger(const Name: String): boolean;
     procedure RemoveObject(Obj: TJSBase);
-    function setProperty(const Name: String; val: TJSBase): boolean; overload;
-    function setProperty(const Name: String; val: TValue): boolean; overload;
+    function setProperty(const Name: String; val: TJSBase; flags : integer = 0): boolean; overload;
+    function setProperty(const Name: String; val: TValue; flags : integer = 0): boolean; overload;
     function TypeOf(const Name: String): JSType;
 
     property JSObject: PJSObject read Fjsobj write Fjsobj;
@@ -1029,6 +1030,7 @@ var
   method: TJSMethod;
   f: TRttiField;
   i: integer;
+  p: TRttiParameter;
 begin
   // setter.Invoke(TClass(Instance), argsV)
   methods := nil;
@@ -1058,7 +1060,10 @@ begin
 
     if exclude then
       continue;
-
+ //defineEnums(f.FieldType);
+    // Define enums
+    for p in method.params do
+      TJSClassProto.DefineEnum(Fcx, fnativeglobal, p.ParamType); // TRttiType
     FMethodNamesMap.Add(methodName, method);
     SetLength(methods, Length(methods) + 1);
     methods[high(methods)].Name := strdup(methodName);
@@ -1171,13 +1176,6 @@ begin
     // proc := FindIntToIdent(val.handle) ;
   end;
 
-  if Length(Consts) > 0 then
-  begin
-    //SetLength(Consts, Length(Consts) + 1);
-    //FillChar(Consts[Length(Consts) - 1], SizeOf(JSConstDoubleSpec), 0);
-    //
-    //JS_DefineConstDoubles(Context, Global.JSObject, @Consts[0]);
-  end;
 end;
 
 { TJSBase }
@@ -1599,7 +1597,7 @@ begin
   Obj.Free;
 end;
 
-function TJSObject.setProperty(const Name: String; val: TValue): boolean;
+function TJSObject.setProperty(const Name: String; val: TValue; flags : integer ): boolean;
 var
   v: jsval;
 begin
@@ -1608,11 +1606,11 @@ begin
     Result := (JS_SetUCProperty(FEngine.Context, Fjsobj, PWideChar(name), Length(name), @v) = js_true)
   else
     Result := (JS_DefineUCProperty(FEngine.Context, Fjsobj, PWideChar(name), Length(name), v, nil, nil,
-      { JSPROP_READONLY or } JSPROP_ENUMERATE) = js_true);
+      { JSPROP_READONLY or } JSPROP_ENUMERATE or flags) = js_true);
 
 end;
 
-function TJSObject.setProperty(const Name: String; val: TJSBase): boolean;
+function TJSObject.setProperty(const Name: String; val: TJSBase; flags : integer ): boolean;
 begin
   CheckConnection;
   if (HasProperty(name)) then
@@ -1620,7 +1618,7 @@ begin
       = js_true)
   else
     Result := (JS_DefineUCProperty(FEngine.Context, Fjsobj, PWideChar(name), Length(name), val.JScriptVal, nil,
-      nil, JSPROP_ENUMERATE) = js_true);
+      nil, JSPROP_ENUMERATE or flags) = js_true);
 end;
 
 function TJSObject.TypeOf(const Name: String): JSType;
@@ -1866,6 +1864,46 @@ begin
 
 end;
 
+class procedure TJSClassProto.DefineEnum(cx: PJSContext; Obj: TJSObject; pt: TRttiType);
+  var
+    i: Integer;
+    st: TRttiSetType;
+    ot: TRttiOrdinalType;
+    ename: string;
+    proc: TIntToIdent;
+
+  begin
+    if pt = nil then exit;
+
+    if pt.Handle^.Kind = tkEnumeration then
+    begin
+      ot := pt.AsOrdinal;
+      for i := ot.MinValue to ot.MaxValue do
+      begin
+        Obj.setProperty(GetEnumName(pt.Handle, i), i, JSPROP_READONLY or JSPROP_PERMANENT);
+      end;
+    end
+    else if pt.IsSet then
+    begin
+      st := pt.AsSet;
+      pt := st.ElementType;
+      if pt.IsOrdinal then
+      begin
+        ot := pt.AsOrdinal;
+        for i := ot.MinValue to ot.MaxValue do
+        begin
+          Obj.setProperty(GetEnumName(pt.Handle, i), 1 shl i, JSPROP_READONLY or JSPROP_PERMANENT);
+        end;
+      end;
+
+    end
+    else if pt.Handle^.Kind = tkInteger then
+    begin
+      // proc := FindIntToIdent(pt.handle) ;
+    end;
+
+end;
+
 class procedure TJSClassProto.DefineFunctions(cx: PJSContext; obj: PJSObject; funcs: TJSFunctionsDynArray);
 var
   i: Integer;
@@ -1905,6 +1943,8 @@ var
 
   clctx: TRttiContext;
   clt: TRttiType;
+  param: TRttiParameter;
+  params: TArray<TRttiParameter>;
 
   DuplicateStrings: TStringList;
 
@@ -2030,13 +2070,14 @@ begin
       end;
     end;
 
+    Params := m.GetParameters;
     // Default js ctor for tcomponent inherited objects
-    if m.IsConstructor and (Length(m.GetParameters) = 1) and (m.GetParameters[0].ParamType.Handle = TypeInfo(TComponent))
+    if m.IsConstructor and (Length(Params) = 1) and (Params[0].ParamType.Handle = TypeInfo(TComponent))
     then
     begin
       defaultCtor := m;
     end
-    else if m.IsConstructor and (Length(m.GetParameters) = 0)
+    else if m.IsConstructor and (Length(Params) = 0)
     then
     begin
       defaultCtorSimple := m;
@@ -2058,10 +2099,13 @@ begin
       (not(m.MethodKind in [mkProcedure, mkFunction])) or (m.Visibility < mvPublic) then
       continue;
 
+    for param in Params do
+      defineEnums(param.ParamType);
+
     SetLength(Fclass_methods, Length(Fclass_methods) + 1);
     Fclass_methods[high(Fclass_methods)].Name := strdup(methodName);
     Fclass_methods[high(Fclass_methods)].Call := @TJSClass.JSMethodCall;
-    Fclass_methods[high(Fclass_methods)].nargs := Length(m.GetParameters);
+    Fclass_methods[high(Fclass_methods)].nargs := Length(Params);
     Fclass_methods[high(Fclass_methods)].flags := JSPROP_ENUMERATE;//JSPROP_SHARED or JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
     Fclass_methods[high(Fclass_methods)].extra := 0;
 
@@ -3265,7 +3309,7 @@ begin
   end;
 
   TJSClassProto.DefineFunctions(Engine.Context, Fjsobj, FClassProto.Fclass_methods);
-  B := JS_DefineConstDoubles(Engine.Context, Fjsobj, @FClassProto.FConsts[0]);
+  B := JS_DefineConstDoubles(Engine.Context, Engine.Global.JSObject, @FClassProto.FConsts[0]);
 
 
 end;
