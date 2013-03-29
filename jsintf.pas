@@ -1131,7 +1131,7 @@ var
 
   procedure defineEnum(ename: string; v: integer);
   begin
-    Global.setProperty(ename, v);
+    Global.setProperty(ename, v, JSPROP_READONLY or JSPROP_PERMANENT);
 
     {SetLength(Consts, Length(Consts) + 1);
     Consts[high(Consts)].dval := v;
