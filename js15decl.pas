@@ -388,7 +388,7 @@ JSOP_LIMIT
    * balance between the two situations.  (See above commented const declaration. *)
   JSAccessMode = (JSACC_PROTO = 0, JSACC_PARENT = 1, JSACC_WATCH =3, JSACC_READ = 4, JSACC_WRITE = 8, JSACC_LIMIT);
   JSExecPart = (JSEXEC_PROLOG, JSEXEC_MAIN);
-  JSTrapStatus = (JSTRAP_ERROR = 0, JSTRAP_CONTINUE = 1, JSTRAP_RETURN = 3, JSTRAP_THROW, JSTRAP_LIMIT);
+  JSTrapStatus = (JSTRAP_ERROR, JSTRAP_CONTINUE , JSTRAP_RETURN, JSTRAP_THROW, JSTRAP_LIMIT);
 
   size_t = LongWord;
   ptrdiff_t = nativeInt;
