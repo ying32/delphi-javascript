@@ -283,11 +283,11 @@ type
 
     function EvaluateFile(const FileName: String; Scope: TJSObject = NIL): boolean; overload;
 
-    function Evaluate(const Code: String; Scope: TJSObject; scriptFileName: AnsiString = ''): boolean; overload;
-    function Evaluate(const Code: String; Scope: TJSObject; var rval: jsval; scriptFileName: AnsiString = '')
+    function Evaluate(const Code: String; Scope: TJSObject; scriptFileName: String = ''): boolean; overload;
+    function Evaluate(const Code: String; Scope: TJSObject; var rval: jsval; scriptFileName: String = '')
       : boolean; overload;
-    function Evaluate(const Code: String; scriptFileName: AnsiString = ''): boolean; overload;
-    function Evaluate(const Code: String; var rval: jsval; scriptFileName: AnsiString = ''): boolean; overload;
+    function Evaluate(const Code: String; scriptFileName: String = ''): boolean; overload;
+    function Evaluate(const Code: String; var rval: jsval; scriptFileName: String = ''): boolean; overload;
 
     function callFunction(functionName: AnsiString; var rval: jsval): boolean; overload;
     function callFunction(functionName: AnsiString): boolean; overload;
@@ -386,8 +386,8 @@ type
     function Declare(const val: String; const Name: String): boolean; overload;
     function Declare(val: boolean; const Name: String): boolean; overload;
     class function enumerate(cx: PJSContext; obj: PJSObject): TArray<string>;
-    function Evaluate(const Code: String; scriptFileName: AnsiString = ''): boolean; overload;
-    function Evaluate(Code: String; var rval: jsval; scriptFileName: AnsiString = ''): boolean; overload;
+    function Evaluate(const Code: String; scriptFileName: String = ''): boolean; overload;
+    function Evaluate(Code: String; var rval: jsval; scriptFileName: String = ''): boolean; overload;
     function Compile(const Code: String; scriptFileName: AnsiString = ''): PJSObject;
     function Execute(Script: PJSObject; rval: pjsval = NIL): boolean;
 
@@ -737,17 +737,17 @@ begin
   inherited;
 end;
 
-function TJSEngine.Evaluate(const Code: String; Scope: TJSObject; scriptFileName: AnsiString): boolean;
+function TJSEngine.Evaluate(const Code: String; Scope: TJSObject; scriptFileName: String): boolean;
 begin
   Result := Scope.Evaluate(Code, scriptFileName);
 end;
 
-function TJSEngine.Evaluate(const Code: String; scriptFileName: AnsiString): boolean;
+function TJSEngine.Evaluate(const Code: String; scriptFileName: String): boolean;
 begin
   Result := Evaluate(Code, fnativeglobal, scriptFileName);
 end;
 
-function TJSEngine.Evaluate(const Code: String; var rval: jsval; scriptFileName: AnsiString): boolean;
+function TJSEngine.Evaluate(const Code: String; var rval: jsval; scriptFileName: String): boolean;
 begin
   Result := Evaluate(Code, fnativeglobal, rval, scriptFileName);
 end;
@@ -775,7 +775,7 @@ begin
   // JS_AddNamedObjectRoot(cx, &scriptObj, "compileAndRepeat script object")
 end;
 
-function TJSEngine.Evaluate(const Code: String; Scope: TJSObject; var rval: jsval; scriptFileName: AnsiString): boolean;
+function TJSEngine.Evaluate(const Code: String; Scope: TJSObject; var rval: jsval; scriptFileName: String): boolean;
 begin
   Result := Scope.Evaluate(Code, rval, scriptFileName);
 
@@ -1432,10 +1432,9 @@ begin
   end;
 end;
 
-function TJSObject.Evaluate( Code: String; var rval: jsval; scriptFileName: AnsiString): boolean;
+function TJSObject.Evaluate( Code: String; var rval: jsval; scriptFileName: String): boolean;
 begin
   CheckConnection;
-  // Result := false;
 
   if scriptFileName = '' then
     scriptFileName := generateScriptName;
@@ -1445,7 +1444,7 @@ begin
   if FEngine.FDebugging then
      FEngine.FDebuggerScripts.AddOrSetValue(scriptFileName, Code);
 
-  Result := JS_EvaluateUCScript(FEngine.Context, Fjsobj, PWideChar(Code), Length(Code), PAnsiChar(scriptFileName), 0,
+  Result := JS_EvaluateUCScript(FEngine.Context, Fjsobj, PWideChar(Code), Length(Code), PAnsiChar(AnsiString(scriptFileName)), 0,
     @rval) = 1;
 
 end;
@@ -1460,7 +1459,7 @@ begin
   Result := JS_ExecuteScript(FEngine.Context, Fjsobj, Script, rval) = js_true;
 end;
 
-function TJSObject.Evaluate(const Code: String; scriptFileName: AnsiString): boolean;
+function TJSObject.Evaluate(const Code: String; scriptFileName: String): boolean;
 var
   rval: jsval;
 begin
