@@ -62,7 +62,8 @@ type
                                    cfaInheritedProperties,  // Publish inherited properties
                                    cfaOwnObject,            // Free object on javascript destructor
                                    cfaGlobalFields,         // Register Private fields as properties to global object
-                                   cfaGlobalProperties);    // global properties
+                                   cfaGlobalProperties,
+                                   cfaNativeObjOwner);    // global properties
 
   JSClassFlagsAttribute = class(TCustomAttribute)
   private
@@ -3312,7 +3313,7 @@ begin
   Fjsobj := JS_NewObject(Engine.Context, @FClassProto.FJSClass, nil, nil{Engine.Global.JSObject});
   FJSObject := TJSObject.Create(Fjsobj, Engine, JSObjectName);
   JS_SetPrivate(Engine.Context, Fjsobj, Pointer(self));
-  if (not FNativeObj.InheritsFrom(TJSClass)) and (JSObjectName = '') then
+  if (not FNativeObj.InheritsFrom(TJSClass)) and (cfaNativeObjOwner in AClassFlags) then
      FNativeObjOwner := True;
 
   if length(FClassProto.Fclass_props) > 0 then
@@ -3548,7 +3549,7 @@ begin
           begin
             if classProto.FRttiType.Name = Obj.ClassName then
             begin
-              retClass := TJSClass.CreateJSObject(Obj, eng, '', classProto.FClassFlags);
+              retClass := TJSClass.CreateJSObject(Obj, eng, '', classProto.FClassFlags + [cfaNativeObjOwner]);
               Result := JSObjectToJSVal(retClass.Fjsobj);
               break;
             end;
@@ -3558,7 +3559,7 @@ begin
           if JSValIsNull(Result ) then
           begin
             // Create JS Object
-            retClass := TJSClass.CreateJSObject(Obj, eng, '', [cfaInheritedMethods, cfaInheritedProperties]);
+            retClass := TJSClass.CreateJSObject(Obj, eng, '', [cfaNativeObjOwner, cfaInheritedMethods, cfaInheritedProperties]);
             Result := JSObjectToJSVal(retClass.Fjsobj);
           end;
         end;
