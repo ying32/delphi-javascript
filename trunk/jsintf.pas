@@ -149,6 +149,7 @@ type
 
   protected
     // Cache tkClass properties
+    FNativeObjOwner: boolean;
     FPointerProps: TDictionary<string, TJSClass>;
     FClassFlags: TJSClassFlagAttributes;
     FClassProto: TJSClassProto;
@@ -234,6 +235,7 @@ type
     fbooleanclass: PJSClass;
     fcx: PJSContext;
     fdateclass: PJSClass;
+    ffunctionclass: PJSClass;
     fglobal: PJSObject;
     fnativeglobal: TJSObject;
     fnumberclass: PJSClass;
@@ -722,8 +724,7 @@ begin
 
   FDestroying := true;
 
-  JS_DestroyContext(fcx);
-  JS_DestroyRuntime(frt);
+  fnativeglobal.Free;
   try
     for p in FDelphiClasses.Values do
     begin
@@ -733,7 +734,11 @@ begin
 
   end;
 
-  fnativeglobal.Free;
+
+  JS_DestroyContext(fcx);
+  JS_DestroyRuntime(frt);
+{
+}
   FDelphiClasses.Free;
   FDebuggerScripts.Free;
   FMethodNamesMap.Free;
@@ -1007,8 +1012,12 @@ var
   i: IInterface;
 begin
 
-  if FDelphiClasses.ContainsKey(AClass.ClassName) then
-    exit;
+  for p in FDelphiClasses.Values do
+  begin
+    if p.FClass.ClassName = aclass.Classname then
+       exit;
+
+  end;
 
   p := TJSClassProto.Create(AClass, AClassFlags);
   p._AddRef;
@@ -1395,6 +1404,7 @@ end;
 destructor TJSObject.Destroy;
 var
   rval: jsval;
+  p: Pointer;
 begin
   // fnatives.Free;
 {  Destroying := True;
@@ -1406,6 +1416,19 @@ begin
     except
     end;
 }
+(*
+  if Fjsobj <> nil then
+  begin
+     Debug('tjsobject.destroy=%s', [JS_GetClass(fjsobj).name]);
+     p := JS_GetPrivate(FEngine.Context, fjsobj);
+     if (p <> nil) then
+        if (TObject(p) is TJSClass) and (TJSClass(p).FNativeObjOwner) then
+           begin
+              TJSClass(p).free;
+           end;
+
+  end;
+*)
   inherited;
 end;
 
@@ -2343,6 +2366,7 @@ var
 begin
   if FJSClassProto = nil then
   begin
+  //FJSClass.finalize := TJSClass.JSObjectDestroy;
     FJSClassProto := JS_InitClass(AEngine.Context, AEngine.Global.JSObject, nil, @FJSClass, @TJSClass.JSObjectCtor, 0,
       nil, nil, nil, nil);
     if FJSClassProto <> nil then
@@ -3244,7 +3268,6 @@ procedure TJSClass.NewJSObject(Engine: TJSEngine; JSObjectName: string; AInstanc
   AClassFlags: TJSClassFlagAttributes);
 var
   B: JSBool;
-  c: TClass;
   iter: PJSObject;
   id: jsid;
   nextobj: PJSObject;
@@ -3274,25 +3297,13 @@ begin
   FJSEngine := Engine;
   FClassFlags := AClassFlags;
 
-  c := AInstance.ClassType;
-
-  // FClass.classname
-  p := GetClassProto(Ainstance.ClassName);
-
-  //OutputDebugString(PChar(Format('Before.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
-
-  if p <> nil then
+  FClassProto := GetClassProto(Ainstance.ClassName);
+  if FClassProto =  nil then
   begin
-     //p._AddRef;
-     FClassProto := p;
-  end
-  else begin
-     FClassProto := TJSClassProto.Create(c, AClassFlags);
-     //FClassProtoIntf :=  FClassProto as IInterface;
+     FClassProto := TJSClassProto.Create(AInstance.ClassType, AClassFlags);
   end;
 
   FClassProto._AddRef;
-  //OutputDebugString(PChar(Format('Afetr.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
 
   if not TJSEngine(Engine).FDelphiClasses.ContainsKey(FClassProto.JSClassName) then
     TJSEngine(Engine).FDelphiClasses.Add(FClassProto.JSClassName, FClassProto);
@@ -3301,6 +3312,8 @@ begin
   Fjsobj := JS_NewObject(Engine.Context, @FClassProto.FJSClass, nil, nil{Engine.Global.JSObject});
   FJSObject := TJSObject.Create(Fjsobj, Engine, JSObjectName);
   JS_SetPrivate(Engine.Context, Fjsobj, Pointer(self));
+  if not FNativeObj.InheritsFrom(TJSClass) then
+     FNativeObjOwner := True;
 
   if length(FClassProto.Fclass_props) > 0 then
      TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_props);
@@ -3645,6 +3658,8 @@ begin
   if FClassProto.RefCount = 1 then
      FJSEngine.FDelphiClasses.Remove(FClassProto.JSClassName);
   FClassProto._Release;
+  if FNativeObjOwner then
+     FNativeObj.Free;
 //  FClassProtoIntf := nil;//.free;
   // FJSEngine
   inherited;
@@ -3691,6 +3706,10 @@ begin
   begin
     JS_SetPrivate(cx, Obj, nil);
     try
+      (*if (TObject(p) is TJSClass) and (TJSClass(p).FNativeObjOwner) then
+      begin
+         TJSClass(p).free;
+      end;*)
       TObject(p).Free;
     except
 
@@ -3703,6 +3722,7 @@ class function TJSClass.JSObjectCtor(cx: PJSContext; argc: uintN; vp: pjsval): J
 var
   eng: TJSEngine;
   defClass: TJSClassProto;
+  clasp: PJSClass;
   Obj: TJSClass;
   JSClassName: string;
   args: TArray<TValue>;
@@ -3713,11 +3733,18 @@ var
   params: TArray<TRttiParameter>;
   callee, jsObj: PJSObject;
   argv: pjsval;
+  func: PJSFunction;
 begin
   Result := js_true;
+  eng := TJSClass.JSEngine(cx);
+
+//  callee := JSValToObject(vp^);
+//  func := JS_ValueToFunction(cx, vp^);
+//  JSClassName := JS_GetClass(callee).Name;
 
   argv := JS_ARGV_PTR(cx, vp);
   callee := JSValToObject(JS_CALLEE(cx, vp));
+  //JSClassName := JS_GetClass(callee).Name;
 
   if (JS_IsConstructing(cx, vp) = false) then
   begin
@@ -3726,11 +3753,13 @@ begin
   end;
 
   jsObj := JS_NewObjectForConstructor(cx, vp);
+  //jsObj := JS_NewObject(cx,
 
-  JSClassName := JS_GetClass(jsobj).Name;
-  eng := TJSClass.JSEngine(cx);
+  clasp := JS_GetClass(jsobj);
+  JSClassName := clasp.Name;
   if eng.FDelphiClasses.TryGetValue(JSClassName, defClass) then
   begin
+     //jsObj := JS_NewObject(cx, @defClass.FJSClass, nil ,nil);
 
     // Call objects javascript ctor methods
     if defClass.FJSCtor <> nil then
@@ -3750,6 +3779,7 @@ begin
         begin
           Obj := TJSClass.Create;
           Obj.FNativeObj := methodResult.AsObject;
+          Obj.FJSEngine := eng;
         end;
         Obj.FClassProto := defClass;
 
@@ -3809,20 +3839,25 @@ begin
             methodResult := TValue.Empty;
           end;
           if not methodResult.IsEmpty then
-            Obj.FNativeObj := methodResult.AsObject;
+             Obj.FNativeObj := methodResult.AsObject;
+
         end;
 
         // Fallback to default constructor
         if Obj.FNativeObj = nil then
           Obj.FNativeObj := defClass.CreateNativeObject(cx, defClass.FClass);
+
       end;
       Obj.FClassProto := defClass;
     end;
 
 
+    Obj.FClassProto._AddRef;
     Obj.FJSEngine := eng;
     Obj.Fjsobj := jsobj;
     Obj.FJSObject := TJSObject.Create(jsobj, eng, '');
+    if not defClass.FClass.InheritsFrom(TJSClass) then
+       Obj.FNativeObjOwner := True;
 
     vp^ := JSObjectToJSVal(jsObj);
     Result := JS_SetPrivate(cx, jsobj, Pointer(Obj));
