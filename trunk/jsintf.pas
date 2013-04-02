@@ -102,7 +102,7 @@ type
 
   TJSPropRead = reference to function (cx: PJSContext; jsobj: PJSObject; id: jsval; vp: pjsval): JSBool;
 
-  TJSClassProto = class(TObject)
+  TJSClassProto = class(TInterfacedObject)
   //private class constructor Create;
   private
     function getJSClassName: string;
@@ -152,6 +152,7 @@ type
     FPointerProps: TDictionary<string, TJSClass>;
     FClassFlags: TJSClassFlagAttributes;
     FClassProto: TJSClassProto;
+    FClassProtoIntf: IInterface;
     FJSEngine: TJSEngine;
     FFreeNotifies: TList<TJSClass>;
 
@@ -241,7 +242,6 @@ type
     fstringclass: PJSClass;
 
     FMethodNamesMap: TDictionary<string, TJSMethod>;
-    Fclass_methods: array of JSFunctionSpec;
 
     FDebugging: boolean;
     FDebugger: TJSDebugServer;
@@ -378,7 +378,6 @@ type
     destructor Destroy; override;
 
     function AddMethods(var methods: TJSFunctionsDynArray): boolean;
-    function AddNativeObject(Obj: TObject; const InstanceName: String): TJSObject;
 
     function ClassType(const Name: String): JSClassType;
     function Declare(val: Double; const Name: String): boolean; overload;
@@ -463,6 +462,8 @@ Type
   end;
 
 var
+//  NumObjsFree: integer = 0;
+//  TJSClassProtoCount: integer = 0;
   RttiContext: TRttiContext;
 
 function MBytes(Bytes: int64): double;
@@ -650,7 +651,8 @@ begin
   ClearExceptions(false);
   SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
 {$ENDIF}
-
+//  NumObjsFree := 0;
+//  TJSClassProtoCount := 0;
   fstackSize := 8192;
   Frt := JS_NewRuntime(MaxMemory);
 
@@ -724,7 +726,9 @@ begin
   JS_DestroyRuntime(frt);
   try
     for p in FDelphiClasses.Values do
-      p.free;
+    begin
+      p._Release;
+    end;
   except
 
   end;
@@ -733,6 +737,9 @@ begin
   FDelphiClasses.Free;
   FDebuggerScripts.Free;
   FMethodNamesMap.Free;
+
+//  Debug('NumObjsFree=%d', [NumObjsFree]);
+//  Debug('TJSClassProtoCount=%d', [TJSClassProtoCount]);
 
   inherited;
 end;
@@ -757,7 +764,6 @@ var
   filenameutf8: UTF8String;
   s, Code: string;
   rval: jsval;
-  Lines: TStringList;
 begin
   if Scope = nil then
     Scope := fnativeglobal;
@@ -998,12 +1004,14 @@ end;
 procedure TJSEngine.registerClass(AClass: TClass; AClassFlags: TJSClassFlagAttributes);
 var
   p: TJSClassProto;
+  i: IInterface;
 begin
 
   if FDelphiClasses.ContainsKey(AClass.ClassName) then
     exit;
 
   p := TJSClassProto.Create(AClass, AClassFlags);
+  p._AddRef;
   p.JSInitClass(self);
   FDelphiClasses.Add(p.JSClassName, p);
 
@@ -1290,17 +1298,6 @@ begin
 
   Result := true;
   TJSClassProto.DefineFunctions(FEngine.Context, Fjsobj,methods);
-end;
-
-function TJSObject.AddNativeObject(Obj: TObject; const InstanceName: String): TJSObject;
-var
-  p: TJSClassProto;
-begin
-  CheckConnection;
-
-  p := TJSClassProto.Create(Obj.ClassType);
-  // p.JSInitClass(FEngine);
-  // FDelphiClasses.Add(p.JSClassName, p);
 end;
 
 procedure TJSObject.CheckConnection;
@@ -1853,6 +1850,8 @@ end;
 
 constructor TJSClassProto.Create(AClass: TClass; AClassFlags: TJSClassFlagAttributes);
 begin
+  inherited Create;
+//  inc(TJSClassProtoCount);
   FClassFlags := AClassFlags;
   Fclass_methods := nil;
   Fclass_props := nil;
@@ -2262,6 +2261,7 @@ begin
   FJSClass.convert := JS_ConvertStub;
   FJSClass.finalize := TJSClass.JSObjectDestroy;
   FreeAndNil(Enums);
+  DuplicateStrings.Free;
 
 end;
 
@@ -2324,6 +2324,8 @@ begin
     freeMem(FJSClass.Name);
 
   FMethodNamesMap.Free;
+
+//  dec(TJSClassProtoCount);
   //Fctx.Free;
   inherited;
 end;
@@ -3277,7 +3279,20 @@ begin
   // FClass.classname
   p := GetClassProto(Ainstance.ClassName);
 
-  FClassProto := TJSClassProto.Create(c, AClassFlags);
+  //OutputDebugString(PChar(Format('Before.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
+
+  if p <> nil then
+  begin
+     //p._AddRef;
+     FClassProto := p;
+  end
+  else begin
+     FClassProto := TJSClassProto.Create(c, AClassFlags);
+     //FClassProtoIntf :=  FClassProto as IInterface;
+  end;
+
+  FClassProto._AddRef;
+  //OutputDebugString(PChar(Format('Afetr.PropRead: %.2f', [MBytes(CurrentMemoryUsage)])));
 
   if not TJSEngine(Engine).FDelphiClasses.ContainsKey(FClassProto.JSClassName) then
     TJSEngine(Engine).FDelphiClasses.Add(FClassProto.JSClassName, FClassProto);
@@ -3603,7 +3618,7 @@ destructor TJSClass.Destroy;
 var
   i: Integer;
 begin
-// debug('Free '+fnativeobj.classname);
+//  inc(NumObjsFree);
 
   RemoveFreeNotifications;
 
@@ -3627,6 +3642,11 @@ begin
 
   FEventsCode.free;
   FPointerProps.free;
+  if FClassProto.RefCount = 1 then
+     FJSEngine.FDelphiClasses.Remove(FClassProto.JSClassName);
+  FClassProto._Release;
+//  FClassProtoIntf := nil;//.free;
+  // FJSEngine
   inherited;
 end;
 
@@ -3799,6 +3819,8 @@ begin
       Obj.FClassProto := defClass;
     end;
 
+
+    Obj.FJSEngine := eng;
     Obj.Fjsobj := jsobj;
     Obj.FJSObject := TJSObject.Create(jsobj, eng, '');
 
