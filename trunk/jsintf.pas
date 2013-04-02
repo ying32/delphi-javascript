@@ -3312,7 +3312,7 @@ begin
   Fjsobj := JS_NewObject(Engine.Context, @FClassProto.FJSClass, nil, nil{Engine.Global.JSObject});
   FJSObject := TJSObject.Create(Fjsobj, Engine, JSObjectName);
   JS_SetPrivate(Engine.Context, Fjsobj, Pointer(self));
-  if not FNativeObj.InheritsFrom(TJSClass) then
+  if (not FNativeObj.InheritsFrom(TJSClass)) and (JSObjectName = '') then
      FNativeObjOwner := True;
 
   if length(FClassProto.Fclass_props) > 0 then
@@ -3624,6 +3624,7 @@ begin
   FEventsCode := TObjectDictionary<string, TJSEventData>.Create([doOwnsValues]);
   FPointerProps:= TDictionary<string, TJSClass>.Create;
   FFreeNotifies:= TList<TJSClass>.Create;
+  FNativeObjOwner := false;
 
 end;
 
@@ -3658,8 +3659,10 @@ begin
   if FClassProto.RefCount = 1 then
      FJSEngine.FDelphiClasses.Remove(FClassProto.JSClassName);
   FClassProto._Release;
-  if FNativeObjOwner then
-     FNativeObj.Free;
+  if FNativeObjOwner and assigned(FNativeObj) then
+  begin
+     FreeAndNil(FNativeObj);
+  end;
 //  FClassProtoIntf := nil;//.free;
   // FJSEngine
   inherited;
