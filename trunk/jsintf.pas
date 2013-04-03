@@ -263,6 +263,7 @@ type
     procedure SetDebugging(const Value: boolean);
   protected
     FDestroying: boolean;
+    FNeverFree: TStringList;
     FDelphiClasses: TDictionary<string, TJSClassProto>;
     class function JSGlobalMethodCall(cx: PJSContext; argc: uintN; vp: pjsval): JSBool; cdecl; static;
   public
@@ -456,6 +457,7 @@ Type
   TJSInternalGlobalFunctions = class
   public
     class procedure DebugBreak(Params: TJSNativeCallParams);
+    class procedure Free(obj: TObject; Params: TJSNativeCallParams);
   end;
 
   TJSIndexedProperty = class(TJSClass)
@@ -679,7 +681,7 @@ begin
   FDelphiClasses := TDictionary<string, TJSClassProto>.Create;
   FDebuggerScripts := TJSDebuggerScripts.Create;
   FMethodNamesMap := TDictionary<string, TJSMethod>.Create;
-
+  FNeverFree := TStringList.Create;
   registerGlobalFunctions(TJSInternalGlobalFunctions);
   //strictMode := true;
 end;
@@ -743,7 +745,7 @@ begin
   FDelphiClasses.Free;
   FDebuggerScripts.Free;
   FMethodNamesMap.Free;
-
+  FNeverFree.Free;
 //  Debug('NumObjsFree=%d', [NumObjsFree]);
 //  Debug('TJSClassProtoCount=%d', [TJSClassProtoCount]);
 
@@ -2487,7 +2489,9 @@ begin
       args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
       methodResult := m.Invoke(Obj.FNativeObj, args);
       if methodResult.Kind <> tkUnknown then
+      begin
          vp^ := TValueToJSVal(cx, methodResult, methodResult.typeinfo.name = 'TDateTime');
+      end;
 
     except
       on e: Exception do
@@ -3662,7 +3666,9 @@ begin
   FClassProto._Release;
   if FNativeObjOwner and assigned(FNativeObj) then
   begin
-     FreeAndNil(FNativeObj);
+     //debug('free %s', [FNativeObj.ClassName]);
+     //if FJSEngine.FNeverFree.indexof(uppercase(FNativeObj.ClassName)) <> -1 then
+     //   FreeAndNil(FNativeObj);
   end;
 //  FClassProtoIntf := nil;//.free;
   // FJSEngine
@@ -4210,6 +4216,35 @@ begin
 {  eng.Debugging := true;
   TJSDebugClient.Create();}
 
+end;
+
+class procedure TJSInternalGlobalFunctions.Free(obj: TObject; Params: TJSNativeCallParams);
+var
+  eng: TJSEngine;
+  p: pointer;
+  objcl: tjsclass;
+begin
+  eng := TJSClass.JSEngine(params.cx);
+
+  //jsobj := JSValToObject(vp);
+  if (JSValIsObject(params.argv^)) then
+  begin
+    p := JS_GetPrivate(params.cx, JSValToObject(params.argv^));
+    if TObject(p) is TJSClass then
+    begin
+      Objcl := TJSClass(p);
+      if OBJcl.FNativeObjOwner then
+         FreeAndNil(Objcl.FNativeObj);
+    end;
+  end;
+
+{  if Obj is TJSClass then
+  begin
+     if TJSClass(OBJ).FNativeObjOwner then
+        FreeAndNil(TJSClass(Obj).FNativeObj);
+  end;
+}
+//  eng.FNeverFree.Add(UpperCase(className));
 end;
 
 Initialization
