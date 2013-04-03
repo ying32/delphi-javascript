@@ -4226,25 +4226,17 @@ var
 begin
   eng := TJSClass.JSEngine(params.cx);
 
-  //jsobj := JSValToObject(vp);
   if (JSValIsObject(params.argv^)) then
   begin
     p := JS_GetPrivate(params.cx, JSValToObject(params.argv^));
     if TObject(p) is TJSClass then
     begin
       Objcl := TJSClass(p);
-      if OBJcl.FNativeObjOwner then
+      if OBJcl.FNativeObjOwner and assigned(Objcl.FNativeObj) and (Objcl.FNativeObj <> objcl) then
          FreeAndNil(Objcl.FNativeObj);
     end;
   end;
 
-{  if Obj is TJSClass then
-  begin
-     if TJSClass(OBJ).FNativeObjOwner then
-        FreeAndNil(TJSClass(Obj).FNativeObj);
-  end;
-}
-//  eng.FNeverFree.Add(UpperCase(className));
 end;
 
 Initialization
