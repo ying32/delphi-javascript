@@ -62,8 +62,7 @@ type
                                    cfaInheritedProperties,  // Publish inherited properties
                                    cfaOwnObject,            // Free object on javascript destructor
                                    cfaGlobalFields,         // Register Private fields as properties to global object
-                                   cfaGlobalProperties,
-                                   cfaNativeObjOwner);    // global properties
+                                   cfaGlobalProperties);    // global properties
 
   JSClassFlagsAttribute = class(TCustomAttribute)
   private
@@ -149,8 +148,6 @@ type
     FJSObject: TJSObject;
 
   protected
-    // Cache tkClass properties
-    FNativeObjOwner: boolean;
     FPointerProps: TDictionary<string, TJSClass>;
     FClassFlags: TJSClassFlagAttributes;
     FClassProto: TJSClassProto;
@@ -206,7 +203,6 @@ type
 
     procedure NewJSObject(Engine: TJSEngine; JSObjectName: string = ''; AInstance: TObject = nil;
       AClassFlags: TJSClassFlagAttributes = []); overload; virtual;
-    procedure FreeJSObject(Engine: TJSEngine);
     function JSEngine: TJSEngine; overload;
     property JSObj: PJSObject read Fjsobj;
     property NativeObj: TObject read FNativeObj;
@@ -457,7 +453,6 @@ Type
   TJSInternalGlobalFunctions = class
   public
     class procedure DebugBreak(Params: TJSNativeCallParams);
-    class procedure Free(obj: TObject; Params: TJSNativeCallParams);
   end;
 
   TJSIndexedProperty = class(TJSClass)
@@ -1971,6 +1966,7 @@ var
   params: TArray<TRttiParameter>;
 
   DuplicateStrings: TStringList;
+  freeExists: boolean;
 
   procedure defineEnums(pt: TRttiType);
   var
@@ -2051,6 +2047,7 @@ begin
   defaultCtor := nil;
   defaultCtorSimple := nil;
   FJSCtor := nil;
+  freeExists := false;
 
   FRttiType := RttiContext.GetType(AClass);
   // FRttiType := FRttiType;
@@ -2125,6 +2122,9 @@ begin
 
     for param in Params do
       defineEnums(param.ParamType);
+
+    if not freeExists then
+       freeExists := methodName = 'Free';
 
     SetLength(Fclass_methods, Length(Fclass_methods) + 1);
     Fclass_methods[high(Fclass_methods)].Name := strdup(methodName);
@@ -2262,6 +2262,23 @@ begin
 
   end;
 
+  (*for fs in FClass_Methods do
+  begin
+    if fs.name = 'Free' then
+
+  end;
+  *)
+
+  if not freeExists then
+  begin
+    SetLength(Fclass_methods, Length(Fclass_methods) + 1);
+    Fclass_methods[high(Fclass_methods)].Name := strdup('Free');
+    Fclass_methods[high(Fclass_methods)].Call := @TJSClass.JSMethodCall;
+    Fclass_methods[high(Fclass_methods)].nargs := Length(Params);
+    Fclass_methods[high(Fclass_methods)].flags := JSPROP_ENUMERATE;//JSPROP_SHARED or JSPROP_READONLY or JSPROP_ENUMERATE or JSPROP_PERMANENT;
+    Fclass_methods[high(Fclass_methods)].extra := 0;
+  end;
+
   // NULL terminate array
   SetLength(Fclass_props, Length(Fclass_props) + 1);
   SetLength(Fclass_indexedProps, Length(Fclass_indexedProps) + 1);
@@ -2391,8 +2408,9 @@ end;
 
 class function TJSClass.JSMethodCall(cx: PJSContext; argc: uintN; vp: pjsval): JSBool;
 var
+  
   Obj: TJSClass;
-  p: Pointer;
+  ptr, p: Pointer;
   m: TRttiMethod;
   methodResult: TValue;
   methodName: string;
@@ -2414,6 +2432,7 @@ var
    LMethod : TRttiMethod;
    LIndex  : Integer;
    LParams : TArray<TRttiParameter>;
+   argsKind: System.TypInfo.TTypeKind;
   begin
     Result:=nil;
     LMethod:=nil;
@@ -2426,10 +2445,20 @@ var
        begin
          Found:=True;
          for LIndex:=0 to Length(LParams)-1 do
-         if LParams[LIndex].ParamType.Handle<>Args[LIndex].TypeInfo then
          begin
-           Found:=False;
-           Break;
+         
+           argsKind := Args[LIndex].Kind;
+           if (Args[LIndex].IsEmpty) and (Args[LIndex].IsObject) then
+           begin
+              argsKind := tkClass;
+           end;
+
+           
+           if LParams[LIndex].ParamType.typeKind <> ArgsKind then
+           begin
+             Found:=False;
+             Break;
+           end;
          end;
        end;
 
@@ -2477,31 +2506,44 @@ begin
   if (Obj.FClassProto <> nil) and (Obj.FClassProto.FMethodNamesMap.Values[methodName] <> '') then
     methodName := Obj.FClassProto.FMethodNamesMap.Values[methodName];
 
-  // Handle overloaded methods ????
-  methods := t.GetMethods(methodName);
-  for m in methods do
+  if methodName = 'Free' then
   begin
-    params := m.GetParameters;
+    if Assigned(Obj.FNativeObj) and (Obj.FNativeObj <> Obj) then
+       FreeAndNil(Obj.FNativeObj);
+  end
+  else begin
+  // Handle overloaded methods ????
+    methods := t.GetMethods(methodName);
+    for m in methods do
+    begin
+      params := m.GetParameters;
+          
+      try
+       //methodResult := RttiMethodInvokeEx(MethodName, t, Obj.FNativeObj, args);
+        args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
+        // Try a much on parameters for overloaded methods
 
-    try
-     //methodResult := RttiMethodInvokeEx(MethodName, t, Obj.FNativeObj, args);
+//        methodResult := TValue.From<pointer>( nil);
+        //TValue.Make(nil, TypeInfo(TObject), methodResult);
+        {if Length(methods) > 1 then
+           RttiMethodInvokeEx(MethodName, t, Obj.FNativeObj, args)
+        else}
+           methodResult := m.Invoke(Obj.FNativeObj, args);
+        if methodResult.Kind <> tkUnknown then
+        begin
+           vp^ := TValueToJSVal(cx, methodResult, methodResult.typeinfo.name = 'TDateTime');
+        end;
 
-      args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
-      methodResult := m.Invoke(Obj.FNativeObj, args);
-      if methodResult.Kind <> tkUnknown then
-      begin
-         vp^ := TValueToJSVal(cx, methodResult, methodResult.typeinfo.name = 'TDateTime');
+      except
+        on e: Exception do
+        begin
+          Result := JS_FALSE;
+          JS_ReportError(cx, PAnsiChar(AnsiString(e.message)), nil);
+        end
       end;
+      break;
 
-    except
-      on e: Exception do
-      begin
-        Result := JS_FALSE;
-        JS_ReportError(cx, PAnsiChar(AnsiString(e.message)), nil);
-      end
     end;
-    break;
-
   end;
 {$POINTERMATH OFF}
 end;
@@ -2597,7 +2639,8 @@ var
 
     while (p^ <> #0) and (p^ <> '%') do
     begin
-      if (p^ = '\') and ((p + 1)^ in ['n', 'r', 't', 'b', '\', '%']) then
+      
+      if (p^ = '\') and CharInSet((p + 1)^,  ['n', 'r', 't', 'b', '\', '%']) then
       begin
         Inc(p);
         case p^ of
@@ -3161,7 +3204,7 @@ begin
       begin
         if JSValIsNull(vp) then
         begin
-           Result := TValue.From<pointer>( nil)
+           Result := TValue.From<TObject>( nil)
         end
         else if (JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) then
         begin
@@ -3317,8 +3360,8 @@ begin
   Fjsobj := JS_NewObject(Engine.Context, @FClassProto.FJSClass, nil, nil{Engine.Global.JSObject});
   FJSObject := TJSObject.Create(Fjsobj, Engine, JSObjectName);
   JS_SetPrivate(Engine.Context, Fjsobj, Pointer(self));
-  if (not FNativeObj.InheritsFrom(TJSClass)) and (cfaNativeObjOwner in AClassFlags) then
-     FNativeObjOwner := True;
+  //if (not FNativeObj.InheritsFrom(TJSClass)) and (cfaNativeObjOwner in AClassFlags) then
+  //   FNativeObjOwner := True;
 
   if length(FClassProto.Fclass_props) > 0 then
      TJSClassProto.DefineProperties(Engine.Context, Fjsobj, FClassProto.Fclass_props);
@@ -3553,7 +3596,7 @@ begin
           begin
             if classProto.FRttiType.Name = Obj.ClassName then
             begin
-              retClass := TJSClass.CreateJSObject(Obj, eng, '', classProto.FClassFlags + [cfaNativeObjOwner]);
+              retClass := TJSClass.CreateJSObject(Obj, eng, '', classProto.FClassFlags);
               Result := JSObjectToJSVal(retClass.Fjsobj);
               break;
             end;
@@ -3563,7 +3606,7 @@ begin
           if JSValIsNull(Result ) then
           begin
             // Create JS Object
-            retClass := TJSClass.CreateJSObject(Obj, eng, '', [cfaNativeObjOwner, cfaInheritedMethods, cfaInheritedProperties]);
+            retClass := TJSClass.CreateJSObject(Obj, eng, '', [cfaInheritedMethods, cfaInheritedProperties]);
             Result := JSObjectToJSVal(retClass.Fjsobj);
           end;
         end;
@@ -3629,7 +3672,7 @@ begin
   FEventsCode := TObjectDictionary<string, TJSEventData>.Create([doOwnsValues]);
   FPointerProps:= TDictionary<string, TJSClass>.Create;
   FFreeNotifies:= TList<TJSClass>.Create;
-  FNativeObjOwner := false;
+//  FNativeObjOwner := false;
 
 end;
 
@@ -3656,6 +3699,9 @@ begin
   if (cfaOwnObject in FClassProto.FClassFlags) and Assigned(FNativeObj) and (FNativeObj <> self) then
      FNativeObj.Free;
 
+  if Fjsobj <> nil then
+     JS_SetPrivate(FJSEngine.Context, fjsObj, nil);   
+     
   if assigned(FJSObject) then
      FJSObject.Free;
 
@@ -3664,26 +3710,7 @@ begin
   if FClassProto.RefCount = 1 then
      FJSEngine.FDelphiClasses.Remove(FClassProto.JSClassName);
   FClassProto._Release;
-  if FNativeObjOwner and assigned(FNativeObj) then
-  begin
-     //debug('free %s', [FNativeObj.ClassName]);
-     //if FJSEngine.FNeverFree.indexof(uppercase(FNativeObj.ClassName)) <> -1 then
-     //   FreeAndNil(FNativeObj);
-  end;
-//  FClassProtoIntf := nil;//.free;
-  // FJSEngine
   inherited;
-end;
-
-procedure TJSClass.FreeJSObject(Engine: TJSEngine);
-begin
-  // JS_DeleteUCProperty2(FEngine.Context, parent, PWideChar(Obj.JSName), Length(Obj.JSName), @rval);
-  try
-    JS_SetPrivate(Engine.Context, JSObj, NIL);
-  except
-
-  end;
-
 end;
 
 procedure TJSClass.FreeNotification(AClass: TJSClass);
@@ -3716,10 +3743,6 @@ begin
   begin
     JS_SetPrivate(cx, Obj, nil);
     try
-      (*if (TObject(p) is TJSClass) and (TJSClass(p).FNativeObjOwner) then
-      begin
-         TJSClass(p).free;
-      end;*)
       TObject(p).Free;
     except
 
@@ -3748,29 +3771,20 @@ begin
   Result := js_true;
   eng := TJSClass.JSEngine(cx);
 
-//  callee := JSValToObject(vp^);
-//  func := JS_ValueToFunction(cx, vp^);
-//  JSClassName := JS_GetClass(callee).Name;
-
   argv := JS_ARGV_PTR(cx, vp);
   callee := JSValToObject(JS_CALLEE(cx, vp));
-  //JSClassName := JS_GetClass(callee).Name;
 
   if (JS_IsConstructing(cx, vp) = false) then
   begin
-    // EJS_THROW_ERROR(cx,obj,"not yet implemented");
     JS_ReportError(cx, 'JSCtor: Class Not yet implemented', nil);
   end;
 
   jsObj := JS_NewObjectForConstructor(cx, vp);
-  //jsObj := JS_NewObject(cx,
 
   clasp := JS_GetClass(jsobj);
   JSClassName := clasp.Name;
   if eng.FDelphiClasses.TryGetValue(JSClassName, defClass) then
   begin
-     //jsObj := JS_NewObject(cx, @defClass.FJSClass, nil ,nil);
-
     // Call objects javascript ctor methods
     if defClass.FJSCtor <> nil then
     begin
@@ -3866,8 +3880,6 @@ begin
     Obj.FJSEngine := eng;
     Obj.Fjsobj := jsobj;
     Obj.FJSObject := TJSObject.Create(jsobj, eng, '');
-    if not defClass.FClass.InheritsFrom(TJSClass) then
-       Obj.FNativeObjOwner := True;
 
     vp^ := JSObjectToJSVal(jsObj);
     Result := JS_SetPrivate(cx, jsobj, Pointer(Obj));
@@ -4215,27 +4227,6 @@ begin
   eng := TJSClass.JSEngine(Params.cx);
 {  eng.Debugging := true;
   TJSDebugClient.Create();}
-
-end;
-
-class procedure TJSInternalGlobalFunctions.Free(obj: TObject; Params: TJSNativeCallParams);
-var
-  eng: TJSEngine;
-  p: pointer;
-  objcl: tjsclass;
-begin
-  eng := TJSClass.JSEngine(params.cx);
-
-  if (JSValIsObject(params.argv^)) then
-  begin
-    p := JS_GetPrivate(params.cx, JSValToObject(params.argv^));
-    if TObject(p) is TJSClass then
-    begin
-      Objcl := TJSClass(p);
-      if OBJcl.FNativeObjOwner and assigned(Objcl.FNativeObj) and (Objcl.FNativeObj <> objcl) then
-         FreeAndNil(Objcl.FNativeObj);
-    end;
-  end;
 
 end;
 
