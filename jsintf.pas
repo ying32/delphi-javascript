@@ -2407,6 +2407,7 @@ end;
 { TJSClass }
 
 class function TJSClass.JSMethodCall(cx: PJSContext; argc: uintN; vp: pjsval): JSBool;
+{$POINTERMATH ON}
 var
   
   Obj: TJSClass;
@@ -2425,57 +2426,77 @@ var
   objval: jsval;
   jsobj: pjsobject;
   methods: TArray<TRttiMethod>;
+  found: Boolean;
 
-  function RttiMethodInvokeEx(const MethodName:string; RttiType : TRttiType; Instance: TValue; const Args: array of TValue): TValue;
+  function RttiMethodFindOverload(const LMethod : TRttiMethod; t : TRttiType; Instance: TValue): boolean;
   var
    Found   : Boolean;
-   LMethod : TRttiMethod;
-   LIndex  : Integer;
-   LParams : TArray<TRttiParameter>;
-   argsKind: System.TypInfo.TTypeKind;
-  begin
-    Result:=nil;
-    LMethod:=nil;
-    Found:=False;
-    for LMethod in RttiType.GetMethods do
-     if SameText(LMethod.Name, MethodName) then
-     begin
-       LParams:=LMethod.GetParameters;
-       if Length(Args)=Length(LParams) then
-       begin
-         Found:=True;
-         for LIndex:=0 to Length(LParams)-1 do
-         begin
-         
-           argsKind := Args[LIndex].Kind;
-           if (Args[LIndex].IsEmpty) and (Args[LIndex].IsObject) then
-           begin
-              argsKind := tkClass;
-           end;
 
-           
-           if LParams[LIndex].ParamType.typeKind <> ArgsKind then
-           begin
-             Found:=False;
-             Break;
-           end;
-         end;
+   LIndex  : Integer;
+   argsKind: System.TypInfo.TTypeKind;
+   vp: jsval;
+  begin
+    Result := false;
+    Found:=False;
+   if Length(Args)=Length(Params) then
+   begin
+     Found:=True;
+     for LIndex:=0 to Length(Params)-1 do
+     begin
+
+       argsKind := Args[LIndex].Kind;
+       if (Args[LIndex].IsEmpty) and (Args[LIndex].IsObject) then
+       begin
+          argsKind := tkClass;
+       end;
+(*
+  TTypeKind = (tkUnknown, tkEnumeration,
+    , tkMethod,
+    tkVariant, tkArray,    tkDynArray,
+    tkClassRef,  tkProcedure);
+*)
+       vp := argv[LIndex];
+       case Params[LIndex].ParamType.typeKind of
+          tkEnumeration:
+            if sameText(Params[LIndex].ParamType.name, 'boolean') then
+               found :=  JSValIsBoolean(vp)
+            else
+               found := JSValIsInt(vp);
+          tkSet,
+          tkInteger: found := JSValIsInt(vp);
+          tkFloat:  found := JSValIsNumber(vp);
+          tkInt64:   found := JSValIsDouble(vp);
+          tkRecord: found := JSValIsObject(vp);
+          tkDynArray: found := JSValIsObject(vp) and (JS_IsArrayObject(cx, JSValToObject(vp)) = js_true);
+          tkString,
+          tkWChar,
+          tkLString,
+          tkWString,
+          tkUString,
+          tkChar: found := JSValIsString(vp);
+          tkPointer: found := JSValIsNull(vp) or JSValIsObject(vp) or
+                     (JSValIsString(vp) and ((t.Name = 'PWideChar') or (t.Name = 'PAnsiChar')));
+
+          tkClass: found := JSValIsNull(vp) or
+                   JSValIsObjectClass(cx, vp, TJSClass) or
+                   ((JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) ) ;
+
+
        end;
 
-       if Found then Break;
-     end;
+       if not found then  break;
 
-     if (LMethod<>nil) and Found then
-       Result:=LMethod.Invoke(Instance, Args)
-     else
-       raise Exception.CreateFmt('method %s not found',[MethodName]);
+     end;
+   end;
+
+   Result := found;
+
+   //if (LMethod<>nil) and Found then
+  //    Result:=LMethod.Invoke(Instance, Args);
   end;
 
 begin
-{$POINTERMATH ON}
 
-  //objval := JS_CALLEE(cx, vp);
-  //jsObj := JSValToObject(objval);
   objval := JS_THIS(cx, vp);
   jsObj := JSValToObject(objval);
   // The function object is in argv[-2].
@@ -2508,27 +2529,34 @@ begin
 
   if methodName = 'Free' then
   begin
+    found := true;
     if Assigned(Obj.FNativeObj) and (Obj.FNativeObj <> Obj) then
        FreeAndNil(Obj.FNativeObj);
   end
   else begin
-  // Handle overloaded methods ????
+  // Handle overload methods
     methods := t.GetMethods(methodName);
+    found := false;
     for m in methods do
     begin
+      if found then break;
+
       params := m.GetParameters;
-          
+
       try
-       //methodResult := RttiMethodInvokeEx(MethodName, t, Obj.FNativeObj, args);
         args := TJSClass.JSArgsToTValues(params, cx, jsobj, argc, argv);
         // Try a much on parameters for overloaded methods
 
-//        methodResult := TValue.From<pointer>( nil);
-        //TValue.Make(nil, TypeInfo(TObject), methodResult);
-        {if Length(methods) > 1 then
-           RttiMethodInvokeEx(MethodName, t, Obj.FNativeObj, args)
-        else}
-           methodResult := m.Invoke(Obj.FNativeObj, args);
+        if Length(methods) > 1 then
+        begin
+           if argc <> length(params) then
+              continue;
+           if not RttiMethodFindOverload(m, t, Obj.FNativeObj) then
+              continue;
+        end;
+
+        found := true;
+        methodResult := m.Invoke(Obj.FNativeObj, args);
         if methodResult.Kind <> tkUnknown then
         begin
            vp^ := TValueToJSVal(cx, methodResult, methodResult.typeinfo.name = 'TDateTime');
@@ -2541,10 +2569,13 @@ begin
           JS_ReportError(cx, PAnsiChar(AnsiString(e.message)), nil);
         end
       end;
-      break;
+
 
     end;
   end;
+
+  if not found then
+     raise Exception.Create('Method call for "'+methodName+'" failed.');
 {$POINTERMATH OFF}
 end;
 
