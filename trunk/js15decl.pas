@@ -1463,6 +1463,7 @@ function JSValMaxInt: integer;
 
 (* Validation routines *)
 function JSValIsObject(v: jsval): Boolean;
+function JSValIsObjectClass(cx: PJSContext; v: jsval; cl: TClass): Boolean;
 function JSValIsNumber(v: jsval): Boolean;
 function JSValIsInt(v: jsval): Boolean;
 function JSValIsDouble(v: jsval): Boolean;
@@ -1854,6 +1855,24 @@ begin
 end;
 
 {$endif}
+
+function JSValIsObjectClass(cx: PJSContext; v: jsval; cl: TClass): Boolean;
+var
+  jsobj: PJSObject;
+  p: Pointer;
+begin
+  if not JSValIsObject(v) then exit(false);
+  jsobj := JSValToObject(v);
+  p := JS_GetPrivate(cx, jsobj);
+  if TObject(p) is cl then  exit(true);
+  result := false;
+  {
+  begin
+    Obj := TJSClass(p);
+    Result := Obj.FNativeObj;
+  end;
+   }
+end;
 
 function JS_CALLEE(cx: PJSContext; vp: pjsval): jsval;
 begin
