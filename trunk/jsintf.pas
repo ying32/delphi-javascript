@@ -59,6 +59,8 @@ type
 
   // JS RTTI Attributes
   TJSClassFlagAttributes = set of (cfaInheritedMethods,     // Publish inherited methods
+                                   cfaProtectedMethods,     // publish protected methods
+                                   cfaProtectedFields,
                                    cfaInheritedProperties,  // Publish inherited properties
                                    cfaOwnObject,            // Free object on javascript destructor
                                    cfaGlobalFields,         // Register Private fields as properties to global object
@@ -1967,6 +1969,7 @@ var
 
   DuplicateStrings: TStringList;
   freeExists: boolean;
+  Visibility: TMemberVisibility;
 
   procedure defineEnums(pt: TRttiType);
   var
@@ -2059,6 +2062,11 @@ begin
   DuplicateStrings:= TStringList.Create;
   //DuplicateStrings.Sorted := true;
 
+  if cfaProtectedMethods in AClassFlags then
+     Visibility :=  mvProtected
+  else
+     Visibility :=  mvPublic;
+
   for a in FRttiType.GetAttributes do
   begin
     if a is JSClassNameAttribute then
@@ -2117,7 +2125,7 @@ begin
 {$ifend}
 
     if exclude or m.IsConstructor or m.IsDestructor or m.IsStatic or m.IsClassMethod or
-      (not(m.MethodKind in [mkProcedure, mkFunction])) or (m.Visibility < mvPublic) then
+      (not(m.MethodKind in [mkProcedure, mkFunction])) or (m.Visibility < Visibility) then
       continue;
 
     for param in Params do
@@ -2181,6 +2189,11 @@ begin
 
 {$IFEND}
 
+  if cfaProtectedFields in AClassFlags then
+     Visibility :=  mvProtected
+  else
+     Visibility :=  mvPublic;
+
   DuplicateStrings.Clear;
   for f in FRttiType.GetFields do
   begin
@@ -2198,7 +2211,7 @@ begin
       end;
     end;
 
-    if exclude or (f.Visibility < mvPublic) then
+    if exclude or (f.Visibility < Visibility) then
       continue;
 
     if DuplicateStrings.IndexOf(f.name) <> -1 then
