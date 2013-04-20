@@ -3151,6 +3151,7 @@ var
   constructorMethod: TRttiMethod;
   prop: TRttiProperty;
   clasp: PJSClass;
+  boolStr: string;
 
 begin
   eng := TJSClass.JSEngine(cx);
@@ -3158,7 +3159,19 @@ begin
   case t^.Kind of
     tkEnumeration:
       if t = System.TypeInfo(boolean) then
-        Result := JSValToBoolean(vp)
+      begin
+        //boolStr := JSValToString(cx, vp);
+        result := false;
+        if JSValIsBoolean(vp) then
+           Result := JSValToBoolean(vp)
+        else if JSValIsNumber(vp) then
+        begin
+           if JSValToDouble(cx, vp) = 1 then
+              result := true
+           else
+              result := false;
+        end;
+      end
       else
       begin
         Result := TValue.FromOrdinal(t, JSValToInt(vp));
