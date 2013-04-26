@@ -2236,6 +2236,9 @@ begin
     if (p.parent <> FRttiType) and (not(cfaInheritedProperties in clFlags)) then
       continue;
 
+//    if p.name = 'Position' then
+//    exclude := false;
+
     exclude := false;
     for a in p.GetAttributes do
     begin
@@ -2248,6 +2251,7 @@ begin
 
     if exclude or (p.Visibility < mvPublic) then
       continue;
+
     if p.Name = 'WindowState' then
        exclude := false;
 
@@ -3049,6 +3053,11 @@ begin
   else
      propName := Obj.FClassProto.Fclass_props[JSValToInt(vid) + 127].Name;
 
+//  if propName = 'Position' then
+//  begin
+//     prop := t.getProperty(propName);
+//  end;
+
   prop := t.getProperty(propName);
   if prop <> nil then
   begin
@@ -3174,7 +3183,12 @@ begin
       end
       else
       begin
-        Result := TValue.FromOrdinal(t, JSValToInt(vp));
+        if JSValIsInt(vp) then
+           Result := TValue.FromOrdinal(t, JSValToInt(vp))
+        else if JSValIsDouble(vp) then
+           Result := TValue.FromOrdinal(t, trunc(JSValToDouble(cx, vp)));
+        //Result := TValue.FromOrdinal(t, JSValToInt(vp))
+       // Result := TValue.FromOrdinal(t, JSValToInt(vp));
       end;
     tkSet:
       begin
