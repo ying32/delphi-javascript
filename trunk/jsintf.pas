@@ -426,8 +426,7 @@ type
     class function LoadScript(FileName: string): string; overload;
     class function LoadScript(Stream: TStream): string; overload;
 
-    procedure Execute(AScope: TJSObject); overload;
-    procedure Execute(); overload;
+    procedure Execute(AScope: TJSObject = nil); overload;
     // Streaming
     procedure LoadCompiled(const AFile: String);
     procedure LoadCompiledFromStream(AStream: TStream);
@@ -1692,15 +1691,15 @@ begin
   inherited;
 end;
 
-procedure TJSScript.Execute;
-begin
-  Execute(FEngine.Global);
-end;
-
 procedure TJSScript.Execute(AScope: TJSObject);
 var
   scriptObj: PJSObject;
 begin
+  if AScope = NIL then
+  begin
+     AScope := FEngine.Global;
+  end;
+
   if (not FCompiled) then
     Compile();
 
