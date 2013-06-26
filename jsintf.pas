@@ -660,7 +660,7 @@ begin
   fcx := JS_NewContext(frt, fstackSize);
   JS_SetRuntimePrivate(frt, self);
 
-  JS_SetOptions(fcx, JS_GetOptions(fcx) or JSOPTION_VAROBJFIX or JSOPTION_JIT or JSOPTION_METHODJIT);
+  JS_SetOptions(fcx, JS_GetOptions(fcx) or {JSOPTION_VAROBJFIX or} JSOPTION_JIT or JSOPTION_METHODJIT);
 
   //FRttiContext := TRttiContext.Create;
   //JS_SetContextPrivate(fcx, @FRttiContext);
