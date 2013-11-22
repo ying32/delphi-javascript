@@ -2004,8 +2004,10 @@ var
     end
     else if pt.IsSet then
     begin
+
       st := pt.AsSet;
       pt := st.ElementType;
+      if pt.Handle.Kind = tkChar then  exit;
       if pt.IsOrdinal then
       begin
         ot := pt.AsOrdinal;
