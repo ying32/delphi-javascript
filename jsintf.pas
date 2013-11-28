@@ -2121,7 +2121,7 @@ begin
        methodName := methodName;
 
     //try
-{$IF CompilerVersion >= 24}
+{$IF CompilerVersion >= 23}
     if not m.HasExtendedInfo then continue;
 {$ifend}
 
