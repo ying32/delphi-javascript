@@ -2170,7 +2170,7 @@ begin
       end;
     end;
 
-    if exclude or (Length(ip.ReadMethod.GetParameters) = 0) or (ip.Visibility < mvPublic) then
+    if exclude or (ip.ReadMethod = nil) or (Length(ip.ReadMethod.GetParameters) = 0) or (ip.Visibility < mvPublic) then
       continue;
 
     if (ip.ReadMethod.GetParameters[0].ParamType.Handle <> TypeInfo(Integer)) then
@@ -2995,6 +2995,7 @@ begin
       for prop in t.GetIndexedProperties do
       begin
          if prop.isDefault and
+            (prop.ReadMethod <> nil) and
             (Length(prop.ReadMethod.GetParameters) = 1) and
             (prop.ReadMethod.GetParameters[0].ParamType.Handle = TypeInfo(Integer)) then
          begin
