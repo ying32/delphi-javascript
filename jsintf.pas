@@ -2492,11 +2492,11 @@ var
             tkRecord: found := JSValIsObject(vp);
             tkDynArray: found := JSValIsObject(vp) and (JS_IsArrayObject(cx, JSValToObject(vp)) = js_true);
             tkString,
-            tkWChar,
             tkLString,
             tkWString,
-            tkUString,
-            tkChar: found := JSValIsString(vp);
+            tkUString: found := JSValIsString(vp);
+            tkWChar,
+            tkChar: found := JSValIsString(vp) and (length(JSValToString(cx, vp)) = 1);
             tkPointer: found := JSValIsNull(vp) or JSValIsObject(vp) or
                        (JSValIsString(vp) and ((t.Name = 'PWideChar') or (t.Name = 'PAnsiChar')));
 
@@ -3168,7 +3168,7 @@ var
   constructorMethod: TRttiMethod;
   prop: TRttiProperty;
   clasp: PJSClass;
-  boolStr: string;
+  str, boolStr: string;
 
 begin
   eng := TJSClass.JSEngine(cx);
@@ -3278,6 +3278,17 @@ begin
     tkWString, tkString, tkUString:
       if not (JSValIsVoid(vp) or JSValIsNull(vp)) then
          Result := JSValToString(cx, vp);
+
+    tkWChar, tkChar:
+      if (not (JSValIsVoid(vp) or JSValIsNull(vp))) and (JSValIsString(vp)) then
+      begin
+         str := JSValToString(cx, vp);
+         if Length(str) = 1 then
+            Result := TValue.From<Char>(str[1])
+         else
+            Result := TValue.From<Char>(#0)
+
+      end;
 
     tkClass:
       begin
