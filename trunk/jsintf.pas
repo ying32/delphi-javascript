@@ -2474,32 +2474,38 @@ var
     tkClassRef,  tkProcedure);
 *)
        vp := argv[LIndex];
-       case Params[LIndex].ParamType.typeKind of
-          tkEnumeration:
-            if sameText(Params[LIndex].ParamType.name, 'boolean') then
-               found :=  JSValIsBoolean(vp)
-            else
-               found := JSValIsInt(vp);
-          tkSet,
-          tkInteger: found := JSValIsInt(vp);
-          tkFloat:  found := JSValIsNumber(vp);
-          tkInt64:   found := JSValIsDouble(vp);
-          tkRecord: found := JSValIsObject(vp);
-          tkDynArray: found := JSValIsObject(vp) and (JS_IsArrayObject(cx, JSValToObject(vp)) = js_true);
-          tkString,
-          tkWChar,
-          tkLString,
-          tkWString,
-          tkUString,
-          tkChar: found := JSValIsString(vp);
-          tkPointer: found := JSValIsNull(vp) or JSValIsObject(vp) or
-                     (JSValIsString(vp) and ((t.Name = 'PWideChar') or (t.Name = 'PAnsiChar')));
+       if Params[LIndex].ParamType = nil then // untyped var
+       begin
+         found := JSValIsObject(vp)  and (JS_IsArrayObject(cx, JSValToObject(vp)) = js_true); // eg new Array (10);
+       end
+       else begin
+         case Params[LIndex].ParamType.typeKind of
+            tkEnumeration:
+              if sameText(Params[LIndex].ParamType.name, 'boolean') then
+                 found :=  JSValIsBoolean(vp)
+              else
+                 found := JSValIsInt(vp);
+            tkSet,
+            tkInteger: found := JSValIsInt(vp);
+            tkFloat:  found := JSValIsNumber(vp);
+            tkInt64:   found := JSValIsDouble(vp);
+            tkRecord: found := JSValIsObject(vp);
+            tkDynArray: found := JSValIsObject(vp) and (JS_IsArrayObject(cx, JSValToObject(vp)) = js_true);
+            tkString,
+            tkWChar,
+            tkLString,
+            tkWString,
+            tkUString,
+            tkChar: found := JSValIsString(vp);
+            tkPointer: found := JSValIsNull(vp) or JSValIsObject(vp) or
+                       (JSValIsString(vp) and ((t.Name = 'PWideChar') or (t.Name = 'PAnsiChar')));
 
-          tkClass: found := JSValIsNull(vp) or
-                   JSValIsObjectClass(cx, vp, TJSClass) or
-                   ((JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) ) ;
+            tkClass: found := JSValIsNull(vp) or
+                     JSValIsObjectClass(cx, vp, TJSClass) or
+                     ((JSValIsObject(vp) and ((JS_TypeOfValue(cx, vp) = JSTYPE_OBJECT)) and (JS_GetClass(JSValToObject(vp)) <> nil) and (JS_GetClass(JSValToObject(vp)).Name = 'Object')) ) ;
 
 
+         end;
        end;
 
        if not found then  break;
@@ -4022,7 +4028,9 @@ begin
   begin
 
     param := params[i];
-    if param.ParamType.Handle = TypeInfo(TJSNativeCallParams) then
+    // ParamType may be nil if it's an untyped var or const parameter.
+
+    if (param.ParamType <> nil) and (param.ParamType.Handle = TypeInfo(TJSNativeCallParams)) then
     begin
       nativeParams.cx := cx;
       nativeParams.jsobj := jsobj;
@@ -4038,7 +4046,12 @@ begin
       end
       else
       begin
-        Result[i] := JSValToTValue(cx, param.ParamType.Handle, argv[i], param.ParamType);
+        if param.ParamType = NIL then
+        begin
+           Result[i] := TValue.From<pointer>( nil);
+        end
+        else
+           Result[i] := JSValToTValue(cx, param.ParamType.Handle, argv[i], param.ParamType);
       end;
     end;
 
