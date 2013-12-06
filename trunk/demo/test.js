@@ -29,7 +29,11 @@ function main()
    // or later cause this version implement index properties access with RTTI
    //var c = MainForm.Controls[0].Name;
 
-   ad = new Date(MainForm.TestDateTime);
+    /*var z = TStreamWriter ("d:\\Temp\\test9.txt", True);
+    z.WriteLine ("abcdef100500!");
+    z.Free ();*/
+
+	ad = new Date(MainForm.TestDateTime);
 
    MainForm.TestDateTime = ad;
 

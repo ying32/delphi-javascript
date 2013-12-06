@@ -58,10 +58,10 @@ begin
   FDT := now;
   FJSEngine := TJSEngine.Create;
   FJSEngine.registerGlobalFunctions(TJSGlobalFunctions);
-  FJSEngine.registerClasses([TEdit, TForm, TLabel, TCheckBox, TFileStream]);
+  FJSEngine.registerClasses([TStreamWriter,TEdit, TForm, TLabel, TCheckBox, TFileStream]);
   FJSAppObject:= TJSAppObject.CreateJSObject(FJSEngine, 'App') ;
   //FJSAppObject.JSObject
-  FJSAppObject.JSDelphiObject.Evaluate('this.testCall();');
+  FJSAppObject.JSObject.Evaluate('this.testCall();');
   TJSClass.CreateJSObject(Self, FJSEngine, 'MainForm', [cfaInheritedMethods, cfaInheritedProperties]);
 //  FJSEngine.Evaluate(TJSScript.LoadScript('test.js'), ':ApplicationInitScript:');
   FJSEngine.EvaluateFile('test.js');
