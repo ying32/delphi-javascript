@@ -2451,7 +2451,7 @@ var
    Found   : Boolean;
 
    LIndex  : Integer;
-   argsKind: System.TypInfo.TTypeKind;
+   //argsKind: System.TypInfo.TTypeKind;
    vp: jsval;
   begin
     Result := false;
@@ -2462,17 +2462,6 @@ var
      for LIndex:=0 to Length(Params)-1 do
      begin
 
-       argsKind := Args[LIndex].Kind;
-       if (Args[LIndex].IsEmpty) and (Args[LIndex].IsObject) then
-       begin
-          argsKind := tkClass;
-       end;
-(*
-  TTypeKind = (tkUnknown, tkEnumeration,
-    , tkMethod,
-    tkVariant, tkArray,    tkDynArray,
-    tkClassRef,  tkProcedure);
-*)
        vp := argv[LIndex];
        if Params[LIndex].ParamType = nil then // untyped var
        begin
